@@ -12,6 +12,7 @@ import {
   isUniqueViolation,
   type ExistingContact,
 } from '@/lib/contacts/dedupe';
+import { getDefaultUnitId } from '@/lib/units/default-unit';
 import {
   Dialog,
   DialogContent,
@@ -66,6 +67,15 @@ export function ContactForm({
   >(null);
   const [checkingDup, setCheckingDup] = useState(false);
 
+  // Unit the new contact lands in. Contacts / conversations are now
+  // scoped to a unit (migrations 043/044), so a created contact needs a
+  // unit_id and the dup check must be unit-scoped. Source: the acting
+  // user's own profiles.unit_id when set (an agent locked to one unit),
+  // otherwise the account's default unit (management creating a contact
+  // before the unit-selector UI — a later task — exists). Resolved when
+  // the dialog opens so the on-blur dup check has it in hand.
+  const [unitId, setUnitId] = useState<string | null>(null);
+
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loadingTags, setLoadingTags] = useState(false);
@@ -78,9 +88,47 @@ export function ContactForm({
       setCompany(contact?.company ?? '');
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
+      setUnitId(null);
       fetchTags();
+      // Only new contacts need a unit resolved; editing never moves a
+      // contact between units here.
+      if (!isEdit) {
+        void resolveUnitId().then(setUnitId);
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, contact]);
+
+  /**
+   * Resolve the unit a newly created contact belongs to: the acting
+   * user's `profiles.unit_id` (agent locked to a unit) if set, else the
+   * account's default unit. Returns null only when neither can be
+   * resolved (e.g. no account) — callers treat that as "unknown".
+   */
+  async function resolveUnitId(): Promise<string | null> {
+    if (!accountId) return null;
+    let resolved: string | null = null;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (userId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('unit_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      resolved = (profile?.unit_id as string | null) ?? null;
+    }
+    if (!resolved) {
+      try {
+        resolved = await getDefaultUnitId(supabase, accountId);
+      } catch (err) {
+        console.error('[contact-form] could not resolve default unit:', err);
+      }
+    }
+    return resolved;
+  }
 
   // Look up an existing contact with this number (new contacts only).
   // Runs on blur so we don't query on every keystroke.
@@ -91,9 +139,20 @@ export function ContactForm({
       setDupMatch(null);
       return;
     }
+    // Dedup is unit-scoped (migration 044): the same number can be a
+    // separate lead in another unit. Without the unit yet resolved, skip
+    // the friendly heads-up — the DB unique index is the real backstop.
+    const unit = unitId ?? (await resolveUnitId());
+    if (unit && !unitId) setUnitId(unit);
+    if (!unit) return;
     setCheckingDup(true);
     try {
-      const existing = await findExistingContact(supabase, accountId, value);
+      const existing = await findExistingContact(
+        supabase,
+        accountId,
+        value,
+        unit,
+      );
       setDupMatch(
         existing
           ? { contact: existing, exact: isExactMatch(existing, value) }
@@ -162,11 +221,20 @@ export function ContactForm({
           .eq('id', contactId);
         if (error) throw error;
       } else {
+        // A new contact needs a unit (contacts.unit_id is NOT NULL —
+        // migration 043). Resolve now if the on-open effect hasn't yet.
+        const createUnitId = unitId ?? (await resolveUnitId());
+        if (!createUnitId) {
+          throw new Error(
+            'Could not determine which unit this contact belongs to.',
+          );
+        }
         const { data, error } = await supabase
           .from('contacts')
           .insert({
             user_id: user.id,
             account_id: accountId,
+            unit_id: createUnitId,
             name: name.trim() || null,
             phone: phone.trim(),
             email: email.trim() || null,
@@ -204,12 +272,16 @@ export function ContactForm({
       if (isUniqueViolation(err)) {
         toast.error(t('toastConflict'));
         if (!isEdit && accountId) {
-          const existing = await findExistingContact(
-            supabase,
-            accountId,
-            phone.trim(),
-          );
-          if (existing) setDupMatch({ contact: existing, exact: true });
+          const unit = unitId ?? (await resolveUnitId());
+          if (unit) {
+            const existing = await findExistingContact(
+              supabase,
+              accountId,
+              phone.trim(),
+              unit,
+            );
+            if (existing) setDupMatch({ contact: existing, exact: true });
+          }
         }
         return;
       }
