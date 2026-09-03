@@ -275,6 +275,13 @@ export interface MessageReaction {
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
+  /**
+   * The unidade (unit) this number is connected to. An account can hold
+   * many config rows — one per unit — with UNIQUE(unit_id) enforcing the
+   * one-number-per-unit rule (migration 042). Optional on the type for
+   * rows read before the column existed.
+   */
+  unit_id?: string;
   phone_number_id: string;
   waba_id?: string;
   access_token: string;
