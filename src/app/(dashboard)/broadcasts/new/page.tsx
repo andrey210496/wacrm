@@ -158,7 +158,7 @@ export default function NewBroadcastPage() {
     <div className="mx-auto max-w-3xl space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+        <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">{t('title')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('subtitle')}
         </p>
