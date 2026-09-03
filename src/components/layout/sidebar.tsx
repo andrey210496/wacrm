@@ -201,12 +201,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
         <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link href="/dashboard" className="flex items-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/redezap-icon.png" alt="RedeZap" className="h-8 w-8 object-contain" />
-            <span className="text-base font-bold tracking-tight text-foreground">
-              Rede<span className="text-green-600 dark:text-green-500">Zap</span>
-            </span>
+            <img src="/redezap-logo-light.png" alt="RedeZap" className="h-8 w-auto object-contain dark:hidden" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/redezap-logo-dark.png" alt="RedeZap" className="hidden h-8 w-auto object-contain dark:block" />
           </Link>
           <button
             type="button"

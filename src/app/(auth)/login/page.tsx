@@ -86,10 +86,9 @@ function LoginPageInner() {
             ) : (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/redezap-icon.png" alt="RedeZap" className="h-14 w-14 object-contain" />
-                <span className="text-2xl font-bold tracking-tight text-foreground">
-                  Rede<span className="text-green-500">Zap</span>
-                </span>
+                <img src="/redezap-logo-light.png" alt="RedeZap" className="h-12 w-auto object-contain dark:hidden" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/redezap-logo-dark.png" alt="RedeZap" className="hidden h-12 w-auto object-contain dark:block" />
               </>
             )}
           </div>
