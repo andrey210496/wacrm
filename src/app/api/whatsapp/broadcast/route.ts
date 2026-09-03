@@ -120,10 +120,18 @@ export async function POST(request: Request) {
       )
     }
 
+    // A multi-unit account can hold more than one whatsapp_config row
+    // (UNIQUE(unit_id), migration 042), so `.single()` alone throws
+    // PGRST116 and surfaces a false "WhatsApp not configured" 400.
+    // `.limit(1)` picks the oldest config, matching how the sibling send
+    // paths were fixed. NOTE: per-unit send routing (choosing the config
+    // for the recipient's / operator's unit) is a future SP2 enhancement;
+    // for now this uses an arbitrary (oldest) config for the account.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+      .limit(1)
       .single()
 
     if (configError || !config) {
