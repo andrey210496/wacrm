@@ -17,6 +17,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
+import { UnitSelector } from "@/components/units/unit-selector";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -49,6 +51,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
   const t = useTranslations("Header");
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
+  const { visibleUnits, selectedUnitId, canSeeAll } = useUnitScope();
   const titleKey = getPageTitleKey(pathname);
 
   const initial =
@@ -74,6 +77,13 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        {/* Management-side unit filter (admin+: a switch; agent/viewer:
+            a static label; hidden entirely for single-unit accounts). */}
+        <UnitSelector
+          units={visibleUnits}
+          selectedUnitId={selectedUnitId}
+          canSeeAll={canSeeAll}
+        />
         <ModeToggle />
 
         <DropdownMenu>

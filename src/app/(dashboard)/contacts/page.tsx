@@ -57,6 +57,7 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { useUnitScope } from '@/components/units/unit-scope-provider';
 
 const PAGE_SIZE = 25;
 
@@ -69,6 +70,8 @@ export default function ContactsPage() {
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  // Management-side unit filter (`null` = all units, admin+ only).
+  const { selectedUnitId } = useUnitScope();
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,6 +163,12 @@ export default function ContactsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
+      // Narrow to the selected unit when the admin has picked one.
+      // (The tag-filtered branch above goes through the
+      // `filter_contacts_by_tags` RPC, which has no unit parameter yet,
+      // so unit narrowing there would need a migration — out of scope.)
+      if (selectedUnitId) query = query.eq('unit_id', selectedUnitId);
+
       if (term) {
         const like = `%${term}%`;
         query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
@@ -207,7 +216,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, tagsMap, t, selectedUnitId]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not

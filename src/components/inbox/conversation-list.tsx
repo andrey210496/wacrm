@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -54,7 +55,10 @@ export function ConversationList({
   resyncToken = 0,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
-  
+  // Management-side unit filter. `null` = all units (admin+); RLS still
+  // pins agents/viewers to their own unit regardless.
+  const { selectedUnitId } = useUnitScope();
+
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
     { label: t("filterUnread"), value: "unread" },
@@ -95,10 +99,15 @@ export function ConversationList({
     let cancelled = false;
 
     (async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("conversations")
         .select(CONVERSATION_SELECT)
         .order("last_message_at", { ascending: false });
+
+      // Narrow to the selected unit when the admin has picked one.
+      if (selectedUnitId) query = query.eq("unit_id", selectedUnitId);
+
+      const { data, error } = await query;
 
       if (cancelled) return;
 
@@ -124,7 +133,8 @@ export function ConversationList({
     // `resyncToken` is included so the parent can force a refetch when
     // the realtime channel reconnects or the tab regains focus — catches
     // up on any events sent while the WS was disconnected or throttled.
-  }, [resyncToken]);
+    // `selectedUnitId` re-scopes the list when the admin switches units.
+  }, [resyncToken, selectedUnitId]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
