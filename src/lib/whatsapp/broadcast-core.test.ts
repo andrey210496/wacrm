@@ -25,6 +25,7 @@ describe('createBroadcast validation', () => {
       createBroadcast(db, 'acc', 'user', {
         templateName: '',
         recipients: [{ to: '+14155550123' }],
+        unitId: 'unit-1',
       })
     ).rejects.toMatchObject({ code: 'bad_request', status: 400 });
   });
@@ -34,6 +35,7 @@ describe('createBroadcast validation', () => {
       createBroadcast(db, 'acc', 'user', {
         templateName: 'promo',
         recipients: [],
+        unitId: 'unit-1',
       })
     ).rejects.toBeInstanceOf(BroadcastError);
   });
@@ -43,7 +45,11 @@ describe('createBroadcast validation', () => {
       to: '+14155550123',
     }));
     await expect(
-      createBroadcast(db, 'acc', 'user', { templateName: 'promo', recipients })
+      createBroadcast(db, 'acc', 'user', {
+        templateName: 'promo',
+        recipients,
+        unitId: 'unit-1',
+      })
     ).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -115,10 +121,12 @@ describe('createBroadcast atomicity (#370)', () => {
     const plan = await createBroadcast(db, 'acc', 'user', {
       templateName: 'promo',
       recipients: [{ to: '+14155550123' }],
+      unitId: 'unit-1',
     });
 
     expect(calls.rpc).toHaveLength(1);
     expect(calls.rpc[0].name).toBe('create_broadcast_with_recipients');
+    expect(calls.rpc[0].args).toMatchObject({ p_unit_id: 'unit-1' });
     expect(calls.usedDirectInsert).toBe(0);
     expect(plan.broadcastId).toBe('b-1');
     expect(plan.planned).toEqual([
@@ -136,6 +144,7 @@ describe('createBroadcast atomicity (#370)', () => {
       createBroadcast(db, 'acc', 'user', {
         templateName: 'promo',
         recipients: [{ to: '+14155550123' }],
+        unitId: 'unit-1',
       })
     ).rejects.toBeInstanceOf(BroadcastError);
 

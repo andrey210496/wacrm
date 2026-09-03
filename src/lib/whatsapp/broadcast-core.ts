@@ -54,6 +54,12 @@ export interface CreateBroadcastParams {
   templateName: string;
   templateLanguage?: string | null;
   recipients: BroadcastRecipientInput[];
+  /**
+   * Unit to stamp on `broadcasts.unit_id` (NOT NULL since migration 043).
+   * The caller resolves this — see `getDefaultUnitId` /
+   * `resolveOperatorUnitId` in `@/lib/units`.
+   */
+  unitId: string;
 }
 
 interface PlannedRecipient {
@@ -88,7 +94,7 @@ export async function createBroadcast(
   auditUserId: string,
   params: CreateBroadcastParams
 ): Promise<BroadcastPlan> {
-  const { name, templateName, recipients } = params;
+  const { name, templateName, recipients, unitId } = params;
 
   if (!templateName) {
     throw new BroadcastError('bad_request', "'template_name' is required", 400);
@@ -206,6 +212,7 @@ export async function createBroadcast(
     'create_broadcast_with_recipients',
     {
       p_account_id: accountId,
+      p_unit_id: unitId,
       p_user_id: auditUserId,
       p_name: name || `API broadcast (${templateName})`,
       p_template_name: templateName,
