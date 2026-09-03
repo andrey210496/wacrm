@@ -24,6 +24,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
+import { getDefaultUnitId } from '@/lib/units/default-unit';
 
 export interface ResolvedConversation {
   conversationId: string;
@@ -54,11 +55,15 @@ export async function resolveConversationByPhone(
   }
 
   // Fail fast (and create nothing) when the account has no WhatsApp
-  // connected — the same error the send would raise anyway.
+  // connected — the same error the send would raise anyway. An account
+  // can now hold MULTIPLE whatsapp_config rows (one per unit, migration
+  // 042), so `.limit(1)` before `.maybeSingle()` — a bare `.maybeSingle()`
+  // errors on ≥2 rows. We only need to know a config EXISTS here.
   const { data: config } = await db
     .from('whatsapp_config')
     .select('id')
     .eq('account_id', accountId)
+    .limit(1)
     .maybeSingle();
   if (!config) {
     throw new SendMessageError(
@@ -84,11 +89,27 @@ export async function resolveConversationByPhone(
     throw err;
   }
 
+  // Unit for the created rows. The public API doesn't (yet) carry a unit
+  // — per-unit API keys are a future SP2 enhancement — so it targets the
+  // account's default unit (oldest active unidade). getDefaultUnitId
+  // throws only when the account has no unit (a data-integrity bug post
+  // migration 042); remap it to the send error family callers handle.
+  let unitId: string;
+  try {
+    unitId = await getDefaultUnitId(db, accountId);
+  } catch (err) {
+    throw new SendMessageError(
+      'db_error',
+      err instanceof Error ? err.message : 'Failed to resolve unit',
+      500,
+    );
+  }
+
   // ---- contact -------------------------------------------------
   let contactId: string;
   let contactCreated = false;
 
-  const existing = await findExistingContact(db, accountId, sanitized);
+  const existing = await findExistingContact(db, accountId, sanitized, unitId);
   if (existing) {
     contactId = existing.id;
     if (name && name !== existing.name) {
@@ -102,6 +123,7 @@ export async function resolveConversationByPhone(
       .from('contacts')
       .insert({
         account_id: accountId,
+        unit_id: unitId,
         user_id: ownerUserId,
         phone: sanitized,
         name: name || sanitized,
@@ -111,9 +133,10 @@ export async function resolveConversationByPhone(
 
     if (createErr || !created) {
       // Lost a race against a concurrent inbound/API create — the
-      // unique index (migration 022) rejected the duplicate. Re-resolve.
+      // unique index (migration 044, per (account, unit, phone))
+      // rejected the duplicate. Re-resolve.
       if (isUniqueViolation(createErr)) {
-        const raced = await findExistingContact(db, accountId, sanitized);
+        const raced = await findExistingContact(db, accountId, sanitized, unitId);
         if (raced) {
           contactId = raced.id;
         } else {
@@ -145,6 +168,7 @@ export async function resolveConversationByPhone(
   const conversationId = await findOrCreateConversationRow(
     db,
     accountId,
+    unitId,
     contactId,
     ownerUserId
   );
@@ -161,6 +185,7 @@ export async function resolveConversationByPhone(
 async function findOrCreateConversationRow(
   db: SupabaseClient,
   accountId: string,
+  unitId: string,
   contactId: string,
   ownerUserId: string
 ): Promise<string> {
@@ -168,6 +193,7 @@ async function findOrCreateConversationRow(
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
+    .eq('unit_id', unitId)
     .eq('contact_id', contactId)
     .order('created_at', { ascending: true })
     .limit(1);
@@ -185,6 +211,7 @@ async function findOrCreateConversationRow(
     .from('conversations')
     .insert({
       account_id: accountId,
+      unit_id: unitId,
       user_id: ownerUserId,
       contact_id: contactId,
     })
@@ -197,6 +224,7 @@ async function findOrCreateConversationRow(
         .from('conversations')
         .select('id')
         .eq('account_id', accountId)
+        .eq('unit_id', unitId)
         .eq('contact_id', contactId)
         .order('created_at', { ascending: true })
         .limit(1);

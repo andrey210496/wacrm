@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { getFlowTemplate } from '@/lib/flows/templates'
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit'
 
 /**
  * GET /api/flows — list the caller's flows.
@@ -96,6 +97,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
+  // Stamp unit_id (NOT NULL since migration 043). This server route has no
+  // topbar context, so the flow belongs to the caller's own unit, falling
+  // back to the account default. The admin client bypasses RLS, so any
+  // valid non-null unit satisfies the not-null constraint.
+  const unitId = await resolveOperatorUnitId(supabase, accountId, userId, null)
+
   const admin = supabaseAdmin()
 
   // -------- Template clone path --------
@@ -112,6 +119,7 @@ export async function POST(request: Request) {
       .insert({
         user_id: userId,
         account_id: accountId,
+        unit_id: unitId,
         name: body.name?.trim() || template.name,
         description: template.description,
         status: 'draft',
@@ -161,6 +169,7 @@ export async function POST(request: Request) {
     .insert({
       user_id: userId,
       account_id: accountId,
+      unit_id: unitId,
       name: body.name.trim(),
       description: body.description ?? null,
       status: 'draft',

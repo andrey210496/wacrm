@@ -67,7 +67,7 @@ describe("dedupeByPhone", () => {
 });
 
 describe("findExistingContact", () => {
-  // Minimal SupabaseClient stub: resolves the .from().select().eq().like()
+  // Minimal SupabaseClient stub: resolves the .from().select().eq().eq().like()
   // chain to a fixed candidate set.
   function stubDb(rows: Array<{ id: string; phone: string }>): SupabaseClient {
     const builder = {
@@ -80,18 +80,59 @@ describe("findExistingContact", () => {
 
   it("returns a trunk-variant match via phonesMatch", async () => {
     const db = stubDb([{ id: "c1", phone: "37063949836" }]);
-    const hit = await findExistingContact(db, "acct", "+370 063 949 836");
+    const hit = await findExistingContact(db, "acct", "+370 063 949 836", "unitA");
     expect(hit?.id).toBe("c1");
   });
 
   it("returns null when no candidate matches", async () => {
     const db = stubDb([{ id: "c1", phone: "15559999999" }]);
-    const hit = await findExistingContact(db, "acct", "+1 555-123-4567");
+    const hit = await findExistingContact(db, "acct", "+1 555-123-4567", "unitA");
     expect(hit).toBeNull();
   });
 
   it("returns null for an empty phone without querying", async () => {
     const db = stubDb([{ id: "c1", phone: "15551234567" }]);
-    expect(await findExistingContact(db, "acct", "   ")).toBeNull();
+    expect(await findExistingContact(db, "acct", "   ", "unitA")).toBeNull();
+  });
+
+  // A richer stub that actually applies `.eq()` filters (col === val)
+  // against the candidate rows, so we can prove unit scoping happens in
+  // the query, not just incidentally in the JS filter.
+  function filteringStub(
+    rows: Array<{ id: string; phone: string; unit_id: string; account_id?: string }>,
+  ): SupabaseClient {
+    const builder: {
+      _rows: typeof rows;
+      select: () => typeof builder;
+      eq: (col: string, val: string) => typeof builder;
+      like: () => Promise<{ data: typeof rows; error: null }>;
+    } = {
+      _rows: rows,
+      select: () => builder,
+      eq: (col, val) => {
+        builder._rows = builder._rows.filter(
+          (r) => (r as unknown as Record<string, string>)[col] === val,
+        );
+        return builder;
+      },
+      like: () => Promise.resolve({ data: builder._rows, error: null }),
+    };
+    return { from: () => builder } as unknown as SupabaseClient;
+  }
+
+  it("does not match a contact with the same phone in another unit", async () => {
+    const db = filteringStub([
+      { id: "c1", phone: "5511999", unit_id: "unitB", account_id: "acc1" },
+    ]);
+    const found = await findExistingContact(db, "acc1", "5511999", "unitA");
+    expect(found).toBeNull();
+  });
+
+  it("matches a contact with the same phone in the same unit", async () => {
+    const db = filteringStub([
+      { id: "c1", phone: "5511999", unit_id: "unitA", account_id: "acc1" },
+    ]);
+    const found = await findExistingContact(db, "acc1", "5511999", "unitA");
+    expect(found?.id).toBe("c1");
   });
 });

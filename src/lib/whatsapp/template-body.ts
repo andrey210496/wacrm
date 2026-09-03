@@ -87,10 +87,18 @@ export interface ResolvedTemplate {
  * omitted the language matched no row: no header components, and no
  * body to persist. Matching falls back through
  * exact → same base language → a sensible default.
+ *
+ * Scoped by `unitId`: a template belongs to the WABA of one unidade
+ * (migration 048 made `unit_id` NOT NULL and moved the unique index to
+ * `(account_id, unit_id, name, language)`), so the SAME name can now
+ * exist in more than one unit. Callers pass the unit the send goes out
+ * from — the conversation's `unit_id`, or a broadcast's `unit_id` — so
+ * the row we read matches the WABA the message is actually sent through.
  */
 export async function resolveTemplateRow(
   db: SupabaseClient,
   accountId: string,
+  unitId: string,
   templateName: string,
   requestedLanguage?: string | null
 ): Promise<ResolvedTemplate> {
@@ -98,6 +106,7 @@ export async function resolveTemplateRow(
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', unitId)
     .eq('name', templateName);
 
   // Sorted here rather than with `.order()` so the only query-builder

@@ -307,6 +307,11 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // Tenancy — drives every contact / conversation lookup
           // and the engines' active-row dispatch.
           config.account_id,
+          // Unit tenancy — the number that received this message owns
+          // one unit (whatsapp_config.unit_id, migration 042). Every
+          // contact / conversation created downstream is stamped with
+          // it so it lands in the right unit's lead pool.
+          config.unit_id,
           // Audit / sender-of-record — used as the user_id on row
           // inserts that need it for NOT NULL FK compliance. Always
           // the admin who saved the WhatsApp config.
@@ -579,6 +584,12 @@ async function processMessage(
   // contact / conversation / message row created downstream is
   // stamped with this so any member of the account can see it.
   accountId: string,
+  // Unit tenancy — the unit that owns the receiving WhatsApp number
+  // (whatsapp_config.unit_id). Stamped on every contact / conversation
+  // created here so the lead lands in the right unit's pool, and used
+  // to scope the find-or-create lookups (dedup is now per
+  // (account, unit, phone) — migration 044).
+  unitId: string,
   // Sender-of-record for inserts that need a NOT NULL user_id FK
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
@@ -594,6 +605,7 @@ async function processMessage(
   // Find or create contact
   const contactOutcome = await findOrCreateContact(
     accountId,
+    unitId,
     configOwnerUserId,
     senderPhone,
     contactName
@@ -604,6 +616,7 @@ async function processMessage(
   // Find or create conversation
   const convResult = await findOrCreateConversation(
     accountId,
+    unitId,
     configOwnerUserId,
     contactRecord.id
   )
@@ -1114,20 +1127,24 @@ interface ContactOutcome {
 
 async function findOrCreateContact(
   accountId: string,
+  unitId: string,
   configOwnerUserId: string,
   phone: string,
   name: string
 ): Promise<ContactOutcome | null> {
-  // Find an existing contact for this account by phone. The shared
-  // helper pre-filters in SQL by the last-8-digit suffix (so we don't
-  // pull every contact on every inbound message) then applies the
+  // Find an existing contact for this account + unit by phone. The
+  // shared helper pre-filters in SQL by the last-8-digit suffix (so we
+  // don't pull every contact on every inbound message) then applies the
   // strict `phonesMatch` in JS on the small candidate set. The same
   // helper backs the manual contact form and CSV import, so all three
-  // paths agree on what "same number" means (issue #212).
+  // paths agree on what "same number" means (issue #212). Dedup is now
+  // scoped to the unit — the same phone can be a separate lead in a
+  // different unit's pool (migration 044).
   const existingContact = await findExistingContact(
     supabaseAdmin(),
     accountId,
     phone,
+    unitId,
   )
 
   if (existingContact) {
@@ -1149,6 +1166,7 @@ async function findOrCreateContact(
     .from('contacts')
     .insert({
       account_id: accountId,
+      unit_id: unitId,
       user_id: configOwnerUserId,
       phone,
       name: name || phone,
@@ -1159,10 +1177,16 @@ async function findOrCreateContact(
   if (createError) {
     // Lost a race: a concurrent inbound delivery (or another path)
     // created this contact between our lookup and insert, and the
-    // unique index (migration 022) rejected the duplicate. Re-resolve
-    // the existing row instead of dropping the message.
+    // unique index (migration 044, now per (account, unit, phone))
+    // rejected the duplicate. Re-resolve the existing row instead of
+    // dropping the message.
     if (isUniqueViolation(createError)) {
-      const raced = await findExistingContact(supabaseAdmin(), accountId, phone)
+      const raced = await findExistingContact(
+        supabaseAdmin(),
+        accountId,
+        phone,
+        unitId,
+      )
       if (raced) return { contact: raced, wasCreated: false }
     }
     console.error('Error creating contact:', createError)
@@ -1174,6 +1198,7 @@ async function findOrCreateContact(
 
 async function findOrCreateConversation(
   accountId: string,
+  unitId: string,
   configOwnerUserId: string,
   contactId: string,
 ) {
@@ -1194,6 +1219,7 @@ async function findOrCreateConversation(
     .from('conversations')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', unitId)
     .eq('contact_id', contactId)
     .order('created_at', { ascending: true })
     .limit(1)
@@ -1208,11 +1234,13 @@ async function findOrCreateConversation(
   }
 
   // Create new conversation. Same tenancy + audit split as
-  // findOrCreateContact above.
+  // findOrCreateContact above; a conversation is per (account, unit,
+  // contact) now (migration 043).
   const { data: newConv, error: createError } = await supabaseAdmin()
     .from('conversations')
     .insert({
       account_id: accountId,
+      unit_id: unitId,
       user_id: configOwnerUserId,
       contact_id: contactId,
     })
@@ -1229,6 +1257,7 @@ async function findOrCreateConversation(
         .from('conversations')
         .select('*')
         .eq('account_id', accountId)
+        .eq('unit_id', unitId)
         .eq('contact_id', contactId)
         .order('created_at', { ascending: true })
         .limit(1)

@@ -54,6 +54,12 @@ export interface CreateBroadcastParams {
   templateName: string;
   templateLanguage?: string | null;
   recipients: BroadcastRecipientInput[];
+  /**
+   * Unit to stamp on `broadcasts.unit_id` (NOT NULL since migration 043).
+   * The caller resolves this — see `getDefaultUnitId` /
+   * `resolveOperatorUnitId` in `@/lib/units`.
+   */
+  unitId: string;
 }
 
 interface PlannedRecipient {
@@ -88,7 +94,7 @@ export async function createBroadcast(
   auditUserId: string,
   params: CreateBroadcastParams
 ): Promise<BroadcastPlan> {
-  const { name, templateName, recipients } = params;
+  const { name, templateName, recipients, unitId } = params;
 
   if (!templateName) {
     throw new BroadcastError('bad_request', "'template_name' is required", 400);
@@ -110,10 +116,16 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
+  // Resolved by the broadcast's own `unitId` (migration 042,
+  // UNIQUE(unit_id)) so every recipient is sent FROM that unit's WhatsApp
+  // number. `account_id` stays as defense-in-depth; `.limit(1)` guards a
+  // stray duplicate before `.single()`.
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', unitId)
+    .limit(1)
     .single();
   if (configError || !config) {
     throw new BroadcastError(
@@ -129,6 +141,7 @@ export async function createBroadcast(
   const resolvedTemplate = await resolveTemplateRow(
     db,
     accountId,
+    unitId,
     templateName,
     params.templateLanguage
   );
@@ -202,6 +215,7 @@ export async function createBroadcast(
     'create_broadcast_with_recipients',
     {
       p_account_id: accountId,
+      p_unit_id: unitId,
       p_user_id: auditUserId,
       p_name: name || `API broadcast (${templateName})`,
       p_template_name: templateName,

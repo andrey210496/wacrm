@@ -4,6 +4,7 @@ import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -120,10 +121,21 @@ export async function POST(request: Request) {
       )
     }
 
+    // This legacy route carries no per-recipient/per-conversation unit,
+    // so the broadcast goes out from the OPERATOR's unit (topbar has no
+    // server context here → resolves the caller's profile unit, else the
+    // account's default/oldest unit). Both the WhatsApp config and the
+    // template row below are then resolved by that same unit so they can
+    // never mismatch — a template belongs to one unit's WABA (migration
+    // 048) and the config is keyed UNIQUE(unit_id) (migration 042).
+    const unitId = await resolveOperatorUnitId(supabase, accountId, userId)
+
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+      .eq('unit_id', unitId)
+      .limit(1)
       .single()
 
     if (configError || !config) {
@@ -146,6 +158,7 @@ export async function POST(request: Request) {
     const resolvedTemplate = await resolveTemplateRow(
       supabase,
       accountId,
+      unitId,
       template_name,
       template_language,
     )

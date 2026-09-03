@@ -31,6 +31,31 @@ async function resolveAccountId(
   return data.account_id as string
 }
 
+/**
+ * Confirm a unit id belongs to the caller's account before we scope any
+ * write to it. Uses the user's RLS-scoped client plus an explicit
+ * `account_id` filter, so a unit id from another account resolves to
+ * `false` (a clean 400) rather than silently matching zero rows deeper
+ * in the write. Returns false on a lookup error too — fail closed.
+ */
+async function unitBelongsToAccount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountId: string,
+  unitId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('unidades')
+    .select('id')
+    .eq('id', unitId)
+    .eq('account_id', accountId)
+    .maybeSingle()
+  if (error) {
+    console.error('[whatsapp/config] unit ownership lookup failed:', error)
+    return false
+  }
+  return Boolean(data)
+}
+
 // Lazy-initialised service-role client. We need it to detect a
 // phone_number_id already claimed by a *different* user — under RLS,
 // the user's own session can't see other users' rows, so the conflict
@@ -60,7 +85,7 @@ function supabaseAdmin() {
  *   { connected: false, reason: 'token_corrupted',  message: '...', needs_reset: true }
  *   { connected: false, reason: 'meta_api_error',   message: '...' }
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient()
 
@@ -85,11 +110,25 @@ export async function GET() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
+    // Post-042 an account holds one config row per unit, so a bare
+    // `.maybeSingle()` on account_id would throw PGRST116 ("multiple
+    // rows"). Scope by `unit_id` when the caller names one (the per-unit
+    // status panel does); otherwise fall back to the oldest unit's row so
+    // legacy no-arg callers (settings overview badge) keep working.
+    const unitId = new URL(request.url).searchParams.get('unitId')
+
+    let query = supabase
       .from('whatsapp_config')
       .select('phone_number_id, access_token, status')
       .eq('account_id', accountId)
-      .maybeSingle()
+
+    if (unitId) {
+      query = query.eq('unit_id', unitId)
+    } else {
+      query = query.order('created_at', { ascending: true }).limit(1)
+    }
+
+    const { data: config, error: configError } = await query.maybeSingle()
 
     if (configError) {
       console.error('Error fetching whatsapp_config:', configError)
@@ -185,11 +224,28 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const { phone_number_id, waba_id, access_token, verify_token, pin, unitId } = body
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
         { error: 'access_token and phone_number_id are required' },
+        { status: 400 }
+      )
+    }
+
+    // A config row is now scoped to a single unit (migration 042), so the
+    // caller must say WHICH unit this number is being connected to. Without
+    // it we'd fall back to touching an arbitrary row for the account — the
+    // exact multi-unit corruption this rework closes.
+    if (typeof unitId !== 'string' || unitId.length === 0) {
+      return NextResponse.json(
+        { error: 'unitId is required (the unit this number connects to)' },
+        { status: 400 }
+      )
+    }
+    if (!(await unitBelongsToAccount(supabase, accountId, unitId))) {
+      return NextResponse.json(
+        { error: 'Unit not found in this account' },
         { status: 400 }
       )
     }
@@ -203,18 +259,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Reject if another account has already claimed this phone_number_id.
-    // wacrm is single-tenant-per-WhatsApp-number — letting two accounts
-    // bind the same number causes the webhook's `.single()` lookup to
-    // throw PGRST116 ("multiple rows"), silently dropping every
-    // inbound message. See issue #136. Post-multi-user we key on
-    // account_id (not user_id) since teammates inside the same account
-    // all share one config; the conflict is between accounts.
+    // Reject if a DIFFERENT unit has already claimed this phone_number_id.
+    // wacrm keeps UNIQUE(phone_number_id) global (migration 013) — the
+    // webhook routes inbound events by phone_number_id with `.single()`,
+    // so two rows sharing a number throw PGRST116 and silently drop every
+    // message (issue #136). Post-042 the conflict is between UNITS, not
+    // accounts: another unit of this same account claiming the number is
+    // just as broken as another account's. Keying the exclusion on
+    // `unit_id` (not account_id) covers both, while still letting THIS
+    // unit re-save its own number (an update). Service role because RLS
+    // hides other accounts' rows from the user's own session.
     const { data: claimed, error: claimedError } = await supabaseAdmin()
       .from('whatsapp_config')
-      .select('account_id')
+      .select('unit_id')
       .eq('phone_number_id', phone_number_id)
-      .neq('account_id', accountId)
+      .neq('unit_id', unitId)
       .maybeSingle()
 
     if (claimedError) {
@@ -229,7 +288,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'This WhatsApp phone number is already linked to another account on this instance. Each phone number can only be connected to one wacrm user.',
+            'This WhatsApp phone number is already linked to another unit on this instance. Each phone number can only be connected to one unit.',
         },
         { status: 409 }
       )
@@ -269,13 +328,16 @@ export async function POST(request: Request) {
       )
     }
 
-    // Look up any pre-existing row for this account so we know whether
-    // this number is already registered with Meta — if so we can skip
-    // /register when the user didn't provide a PIN this time around.
+    // Look up any pre-existing row FOR THIS UNIT so we know whether the
+    // number is already registered with Meta — if so we can skip /register
+    // when the user didn't provide a PIN this time around. Scoped by
+    // unit_id (not account_id) so a sibling unit's row never decides the
+    // insert-vs-update branch for this one.
     const { data: existing } = await supabase
       .from('whatsapp_config')
       .select('id, registered_at, phone_number_id')
       .eq('account_id', accountId)
+      .eq('unit_id', unitId)
       .maybeSingle()
 
     const sameNumber =
@@ -367,10 +429,14 @@ export async function POST(request: Request) {
     }
 
     if (existing) {
+      // Scope the update to this unit's row. The `account_id` filter is
+      // belt-and-braces (RLS already scopes to the account); `unit_id` is
+      // what actually keeps the write off sibling units' rows.
       const { error: updateError } = await supabase
         .from('whatsapp_config')
         .update(baseRow)
         .eq('account_id', accountId)
+        .eq('unit_id', unitId)
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
@@ -388,6 +454,7 @@ export async function POST(request: Request) {
         .from('whatsapp_config')
         .insert({
           account_id: accountId,
+          unit_id: unitId,
           user_id: user.id,
           ...baseRow,
         })
@@ -438,7 +505,7 @@ export async function POST(request: Request) {
  * Used by the "Reset Configuration" button to recover from a corrupted
  * encrypted token (mismatched ENCRYPTION_KEY across environments).
  */
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     const supabase = await createClient()
 
@@ -459,10 +526,31 @@ export async function DELETE() {
       )
     }
 
+    // Which unit's config to reset. Required so a reset can't wipe every
+    // unit's row for the account at once (the pre-042 behaviour, now a
+    // data-corruption bug). Passed as a query param — DELETE bodies are
+    // awkward for `fetch` callers.
+    const unitId = new URL(request.url).searchParams.get('unitId')
+    if (!unitId) {
+      return NextResponse.json(
+        { error: 'unitId query parameter is required' },
+        { status: 400 },
+      )
+    }
+    if (!(await unitBelongsToAccount(supabase, accountId, unitId))) {
+      return NextResponse.json(
+        { error: 'Unit not found in this account' },
+        { status: 400 },
+      )
+    }
+
+    // Scope the delete to this unit's row. `unit_id` is the real guard;
+    // `account_id` is belt-and-braces alongside RLS.
     const { error: deleteError } = await supabase
       .from('whatsapp_config')
       .delete()
       .eq('account_id', accountId)
+      .eq('unit_id', unitId)
 
     if (deleteError) {
       console.error('Error deleting whatsapp_config:', deleteError)

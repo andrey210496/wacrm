@@ -221,7 +221,9 @@ export async function sendMessageToConversation(
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
 
-  // Conversation + contact, account-scoped.
+  // Conversation + contact, account-scoped. `*` includes `unit_id`
+  // (NOT NULL since migration 043), which drives the per-unit config
+  // lookup below so the message sends FROM this conversation's unit.
   const { data: conversation, error: convError } = await db
     .from('conversations')
     .select('*, contact:contacts(*)')
@@ -251,11 +253,17 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
+  // WhatsApp config for THIS conversation's unit. An account holds one
+  // config row per unit (migration 042, UNIQUE(unit_id)), so we resolve
+  // by the conversation's `unit_id` — the message sends FROM that unit's
+  // WhatsApp number. `account_id` is kept as defense-in-depth. `.limit(1)`
+  // before `.single()` guards against a stray duplicate.
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', conversation.unit_id)
+    .limit(1)
     .single();
 
   if (configError || !config) {
@@ -322,6 +330,7 @@ export async function sendMessageToConversation(
     const resolved = await resolveTemplateRow(
       db,
       accountId,
+      conversation.unit_id,
       templateName,
       templateLanguage
     );

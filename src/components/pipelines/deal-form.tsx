@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
+import { getDefaultUnitId } from "@/lib/units/default-unit";
 import { CURRENCIES } from "@/lib/currency";
 import type {
   Contact,
@@ -56,6 +58,7 @@ export function DealForm({
   const t = useTranslations("Pipelines.form");
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
+  const { selectedUnitId } = useUnitScope();
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
@@ -171,9 +174,25 @@ export function DealForm({
     };
 
     if (deal) {
+      // Re-derive unit_id from the (possibly changed) linked contact — a
+      // deal belongs to its contact's unit, so switching the contact on
+      // edit moves the deal to the new contact's unit. Fall back to the
+      // operator's selected unit then the account default (same chain as
+      // create) so the update still satisfies the can_see_unit RLS check;
+      // if none resolves, leave unit_id untouched rather than block the save.
+      const linkedContact = contacts.find((c) => c.id === contactId);
+      let unitId = linkedContact?.unit_id ?? selectedUnitId ?? null;
+      if (!unitId && accountId) {
+        try {
+          unitId = await getDefaultUnitId(supabase, accountId);
+        } catch {
+          unitId = null;
+        }
+      }
+      const editPayload = unitId ? { ...payload, unit_id: unitId } : payload;
       const { error } = await supabase
         .from("deals")
-        .update(payload)
+        .update(editPayload)
         .eq("id", deal.id);
       if (error) {
         toast.error(t("toastFailedSave"));
@@ -195,9 +214,25 @@ export function DealForm({
         setSaving(false);
         return;
       }
+      // Stamp unit_id (NOT NULL since migration 043). A deal belongs to
+      // its linked contact's unit — the contact carries the authoritative
+      // unit_id. Fall back to the operator's selected unit, then the
+      // account default, so the insert always satisfies the `can_see_unit`
+      // RLS check.
+      const linkedContact = contacts.find((c) => c.id === contactId);
+      let unitId = linkedContact?.unit_id ?? selectedUnitId ?? null;
+      if (!unitId) {
+        try {
+          unitId = await getDefaultUnitId(supabase, accountId);
+        } catch {
+          toast.error(t("toastFailedCreate"));
+          setSaving(false);
+          return;
+        }
+      }
       const { error } = await supabase
         .from("deals")
-        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" });
+        .insert({ ...payload, unit_id: unitId, user_id: user.id, account_id: accountId, status: "open" });
       if (error) {
         toast.error(t("toastFailedCreate"));
         setSaving(false);
