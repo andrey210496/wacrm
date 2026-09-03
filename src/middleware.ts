@@ -69,6 +69,25 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
+  // Closed signup — SILO instances are provisioned per client, not
+  // self-serve. When SIGNUP_DISABLED is set, block anonymous access to
+  // /signup EXCEPT when an invite token is present: teammates still
+  // join via /join/<token> -> /signup?invite=<token>, and that flow
+  // must keep working. The signup submit handler also re-checks this
+  // server-side (defense in depth — a stale cached copy of the page,
+  // e.g. behind a CDN, could otherwise bypass this redirect entirely).
+  if (
+    !user &&
+    request.nextUrl.pathname === '/signup' &&
+    process.env.SIGNUP_DISABLED === 'true' &&
+    !request.nextUrl.searchParams.get('invite')
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.search = ''
+    return withRefreshedCookies(NextResponse.redirect(url))
+  }
+
   // Protected pages - redirect to login if not authenticated
   const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {

@@ -60,6 +60,35 @@ function SignupPageInner() {
 
     setLoading(true);
 
+    // Server-side defense in depth: middleware already redirects an
+    // anonymous visit to /signup -> /login when SIGNUP_DISABLED is set
+    // (except with an invite token), but a stale cached copy of this
+    // page could still reach a browser and skip that redirect. Re-check
+    // right before calling Supabase, via a no-store API route (SIGNUP_
+    // DISABLED is server-only, so the client can't read it directly).
+    try {
+      const statusRes = await fetch(
+        `/api/auth/signup-status${inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ""}`,
+        { cache: "no-store" },
+      );
+      const { disabled } = (await statusRes.json()) as { disabled: boolean };
+      if (disabled) {
+        setError(
+          "Novos cadastros estão desativados nesta instância. Se você recebeu um convite, use o link do convite; caso contrário, fale com quem administra esta conta.",
+        );
+        setLoading(false);
+        return;
+      }
+    } catch (err) {
+      // Fail-open here mirrors the license gate's philosophy at the
+      // opposite end: a transient network hiccup on this check must
+      // not block a legitimate signup. The middleware redirect (and,
+      // for an invite-less closed instance, the operator's own
+      // Supabase project not being publicly advertised) remain the
+      // primary controls.
+      console.error("[signup] signup-status check failed:", err);
+    }
+
     // If we have an invite token, point Supabase's verification
     // email back at the join page so the user can accept after
     // verifying. Without a token, Supabase uses its default
