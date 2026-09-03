@@ -64,11 +64,14 @@ function makeDb(rpcResult: { data: unknown; error: unknown }) {
         return {
           select: () => ({
             eq: () => ({
-              single: () =>
-                Promise.resolve({
-                  data: { phone_number_id: 'pn-1', access_token: 'enc' },
-                  error: null,
-                }),
+              // .limit(1).single() now (multi-config tolerant, migration 042)
+              limit: () => ({
+                single: () =>
+                  Promise.resolve({
+                    data: { phone_number_id: 'pn-1', access_token: 'enc' },
+                    error: null,
+                  }),
+              }),
             }),
           }),
         };

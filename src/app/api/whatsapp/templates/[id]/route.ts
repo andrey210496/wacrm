@@ -138,10 +138,14 @@ export async function PATCH(
     }
 
     if (!isDryRun()) {
+      // .limit(1): an account may hold multiple config rows (one per
+      // unit, migration 042); .single() errors on ≥2. WABA is shared
+      // across units, so any config resolves the same Meta template.
       const { data: config, error: configError } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
+        .limit(1)
         .single()
       if (configError || !config) {
         return NextResponse.json(
@@ -278,10 +282,14 @@ export async function DELETE(
     }
 
     if (existing.meta_template_id && !isDryRun()) {
+      // .limit(1): an account may hold multiple config rows (one per
+      // unit, migration 042); .single() errors on ≥2. WABA is shared
+      // across units, so any config resolves the same Meta template.
       const { data: config, error: configError } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
+        .limit(1)
         .single()
       if (configError || !config || !config.waba_id) {
         return NextResponse.json(

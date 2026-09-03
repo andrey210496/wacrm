@@ -251,11 +251,16 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
+  // WhatsApp config, account-scoped. An account can now hold MULTIPLE
+  // config rows (one per unit, migration 042), so `.limit(1)` before
+  // `.single()` — a bare `.single()` errors on ≥2 rows. Per-unit send
+  // routing (send from the conversation's own unit) is a later SP2 task;
+  // for now we take one config for the account.
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .limit(1)
     .single();
 
   if (configError || !config) {

@@ -135,10 +135,14 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
+  // `.limit(1)` — an account can hold multiple config rows (one per unit,
+  // migration 042) and `.single()` errors on ≥2. Per-unit send routing is
+  // SP2; take one config for the account for now.
   const { data: config, error: configErr } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', input.accountId)
+    .limit(1)
     .single()
   if (configErr || !config) {
     throw new Error('WhatsApp not configured for this account')

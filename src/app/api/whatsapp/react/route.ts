@@ -89,10 +89,14 @@ export async function POST(request: Request) {
     }
 
     // WhatsApp config + access token. Account-scoped post-multi-user.
+    // .limit(1): an account may hold multiple config rows (one per unit,
+    // migration 042); .single() errors on ≥2. Per-unit send routing is
+    // SP2; take one config for the account for now.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('phone_number_id, access_token')
       .eq('account_id', accountId)
+      .limit(1)
       .single();
 
     if (configError || !config) {

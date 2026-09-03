@@ -48,11 +48,15 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
+    // Fetch and decrypt WhatsApp config.
+    // .limit(1): an account may hold multiple config rows (one per unit,
+    // migration 042); .single() errors on ≥2. Any config's access token
+    // authorizes the media proxy fetch for the account.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+      .limit(1)
       .single()
 
     if (configError || !config) {

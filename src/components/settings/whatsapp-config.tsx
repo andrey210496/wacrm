@@ -117,13 +117,18 @@ export function WhatsAppConfig() {
       // Load form values from Supabase (shows what's in DB).
       // Switched from `user_id` (which would only match the row's
       // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
+      // account sees the same saved configuration.
+      //
+      // Migration 042 replaced UNIQUE(account_id) with UNIQUE(unit_id),
+      // so an account can now hold multiple config rows (one per unit).
+      // `.limit(1)` keeps this editor from erroring on ≥2 rows; it loads
+      // the oldest unit's config. A per-unit config selector is a later
+      // task (the unit-selector UI) — until then this edits one unit.
       const { data, error } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', acctId)
+        .limit(1)
         .maybeSingle();
 
       if (error) {

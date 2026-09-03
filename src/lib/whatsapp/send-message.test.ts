@@ -223,6 +223,7 @@ function sendPathDb(
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: () => builder,
+        limit: () => builder,
         insert: (row: Record<string, unknown>) => {
           if (table === 'messages') captured.message = row;
           return builder;
