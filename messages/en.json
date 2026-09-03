@@ -1389,6 +1389,7 @@
       "syncFromMeta": "Sync from Meta",
       "syncing": "Syncing…",
       "syncTitle": "Pull approved templates from your Meta WhatsApp Business Account",
+      "unitSelectPlaceholder": "Select unit",
       "newTemplate": "New Template",
       "noTemplates": "No templates yet.",
       "createFirst": "Create your first message template to get started.",

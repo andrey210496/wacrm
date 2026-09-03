@@ -1188,6 +1188,7 @@ export function MessageThread({
         open={templateModalOpen}
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
+        unitId={conversation?.unit_id ?? null}
       />
 
       {/* Full-size viewer for the thread's images/videos. Renders nothing

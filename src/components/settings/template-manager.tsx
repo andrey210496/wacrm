@@ -131,6 +131,12 @@ export function TemplateManager() {
 
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  // Templates belong to one unit's WABA (migration 048), so the manager
+  // operates on a single unit at a time: the selector picks which unit's
+  // templates to list, create, and sync. Hidden when the account has one
+  // unit (the sole unit is used implicitly). Defaults to the first unit.
+  const [units, setUnits] = useState<{ id: string; name: string }[]>([]);
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -177,24 +183,56 @@ export function TemplateManager() {
     });
   }, [bodyVarCount]);
 
+  // Load the account's units once, and pick the first as the default
+  // working unit. Reuses GET /api/unidades (any member may read the list).
+  useEffect(() => {
+    if (authLoading || !user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/unidades', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          units?: { id: string; name: string }[];
+        };
+        if (cancelled) return;
+        const list = json.units ?? [];
+        setUnits(list);
+        setSelectedUnitId((prev) => prev ?? list[0]?.id ?? null);
+      } catch {
+        // Units endpoint unreachable — the manager falls back to the
+        // account default unit server-side when no unit_id is sent.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user?.id]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
       setLoading(false);
       return;
     }
-    fetchTemplates(user.id);
+    fetchTemplates(selectedUnitId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id]);
+  }, [authLoading, user?.id, selectedUnitId]);
 
-  async function fetchTemplates(userId: string) {
+  async function fetchTemplates(unitId: string | null) {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('message_templates')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+      // Scope to the selected unit (RLS' can_see_unit already restricts
+      // agents; this is the management-side per-unit filter). Before units
+      // resolve (or if /api/unidades is unreachable), unitId is null and
+      // we fall back to the RLS-scoped account view rather than an empty
+      // list, then re-filter once the default unit is picked.
+      let query = supabase.from('message_templates').select('*');
+      if (unitId) query = query.eq('unit_id', unitId);
+      const { data, error } = await query.order('created_at', {
+        ascending: false,
+      });
       if (error) throw error;
       setTemplates(data || []);
     } catch (err) {
@@ -218,6 +256,10 @@ export function TemplateManager() {
       name: form.name.trim(),
       category: form.category,
       language: form.language.trim() || 'en_US',
+      // Which unit's WABA to register this template on (migration 048).
+      // Only used on create — the PATCH edit path keys off the row's own
+      // unit and ignores this. Null → the submit route uses the default.
+      unit_id: selectedUnitId ?? undefined,
       header_type: form.header_format === 'none' ? undefined : form.header_format,
       header_content:
         form.header_format === 'text' ? form.header_content.trim() : undefined,
@@ -280,7 +322,7 @@ export function TemplateManager() {
       }
       // Refresh first, then close — re-opening the dialog
       // immediately should not show a stale list.
-      if (user) await fetchTemplates(user.id);
+      if (user) await fetchTemplates(selectedUnitId);
       toast.success(
         data.dry_run
           ? isEdit
@@ -305,7 +347,13 @@ export function TemplateManager() {
     if (!user) return;
     setSyncing(true);
     try {
-      const res = await fetch('/api/whatsapp/templates/sync', { method: 'POST' });
+      // Sync pulls from the selected unit's WABA (migration 048). Null →
+      // the sync route defaults to the account's oldest unit.
+      const res = await fetch('/api/whatsapp/templates/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unit_id: selectedUnitId ?? undefined }),
+      });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || `Sync failed (HTTP ${res.status})`);
@@ -334,7 +382,7 @@ export function TemplateManager() {
           { duration: 10000 },
         );
       }
-      await fetchTemplates(user.id);
+      await fetchTemplates(selectedUnitId);
     } catch (err) {
       console.error('Template sync error:', err);
       toast.error(err instanceof Error ? err.message : t('toastSyncError'));
@@ -488,6 +536,29 @@ export function TemplateManager() {
         description={t('description')}
         action={
           <div className="flex items-center gap-2">
+            {units.length > 1 && (
+              <Select
+                value={selectedUnitId ?? undefined}
+                onValueChange={(val) => {
+                  if (val) setSelectedUnitId(val);
+                }}
+              >
+                <SelectTrigger className="w-44 bg-muted border-border text-foreground">
+                  <SelectValue placeholder={t('unitSelectPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border">
+                  {units.map((u) => (
+                    <SelectItem
+                      key={u.id}
+                      value={u.id}
+                      className="text-popover-foreground focus:bg-muted focus:text-popover-foreground"
+                    >
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               variant="outline"
               onClick={handleSyncFromMeta}
