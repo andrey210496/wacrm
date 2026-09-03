@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
+import { getDefaultUnitId } from "@/lib/units/default-unit";
 import { CURRENCIES } from "@/lib/currency";
 import type {
   Contact,
@@ -56,6 +58,7 @@ export function DealForm({
   const t = useTranslations("Pipelines.form");
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
+  const { selectedUnitId } = useUnitScope();
 
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("");
@@ -195,9 +198,28 @@ export function DealForm({
         setSaving(false);
         return;
       }
+      // Stamp unit_id (NOT NULL since migration 043). A deal belongs to
+      // its linked contact's unit — the contact carries the authoritative
+      // unit_id (`contacts` was loaded with select("*"), so it's present
+      // at runtime even though the TS type predates the column). Fall back
+      // to the operator's selected unit, then the account default, so the
+      // insert always satisfies the `can_see_unit` RLS check.
+      const linkedContact = contacts.find((c) => c.id === contactId) as
+        | { unit_id?: string | null }
+        | undefined;
+      let unitId = linkedContact?.unit_id ?? selectedUnitId ?? null;
+      if (!unitId) {
+        try {
+          unitId = await getDefaultUnitId(supabase, accountId);
+        } catch {
+          toast.error(t("toastFailedCreate"));
+          setSaving(false);
+          return;
+        }
+      }
       const { error } = await supabase
         .from("deals")
-        .insert({ ...payload, user_id: user.id, account_id: accountId, status: "open" });
+        .insert({ ...payload, unit_id: unitId, user_id: user.id, account_id: accountId, status: "open" });
       if (error) {
         toast.error(t("toastFailedCreate"));
         setSaving(false);

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { useUnitScope } from '@/components/units/unit-scope-provider';
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit';
 import { toast } from 'sonner';
 import { MessageTemplate } from '@/types';
 import { Step1ChooseTemplate } from '@/components/broadcasts/step1-choose-template';
@@ -25,6 +27,7 @@ export default function NewBroadcastPage() {
   const router = useRouter();
   const t = useTranslations('Broadcasts.new');
   const { accountId } = useAuth();
+  const { selectedUnitId } = useUnitScope();
   const { createAndSendBroadcast, isProcessing, progress } = useBroadcastSending();
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -101,9 +104,31 @@ export default function NewBroadcastPage() {
       return;
     }
 
+    // Stamp unit_id (NOT NULL since migration 043). A broadcast belongs to
+    // the operator's current unit — the topbar selection, falling back to
+    // the caller's own unit then the account default. The insert is
+    // RLS-scoped, so this must be a unit the caller can see.
+    let unitId: string;
+    try {
+      unitId = await resolveOperatorUnitId(
+        supabase,
+        accountId,
+        user.id,
+        selectedUnitId,
+      );
+    } catch (err) {
+      toast.error(
+        t('toastFailedDraft', {
+          error: err instanceof Error ? err.message : 'unit',
+        }),
+      );
+      return;
+    }
+
     const { error } = await supabase.from('broadcasts').insert({
       user_id: user.id,
       account_id: accountId,
+      unit_id: unitId,
       name: name.trim(),
       template_name: template.name,
       template_language: template.language ?? 'en_US',
