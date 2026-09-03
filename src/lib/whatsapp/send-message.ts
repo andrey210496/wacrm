@@ -330,6 +330,7 @@ export async function sendMessageToConversation(
     const resolved = await resolveTemplateRow(
       db,
       accountId,
+      conversation.unit_id,
       templateName,
       templateLanguage
     );

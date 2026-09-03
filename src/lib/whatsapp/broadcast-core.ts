@@ -141,6 +141,7 @@ export async function createBroadcast(
   const resolvedTemplate = await resolveTemplateRow(
     db,
     accountId,
+    unitId,
     templateName,
     params.templateLanguage
   );

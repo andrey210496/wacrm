@@ -173,6 +173,7 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
           await resolveTemplateRow(
             db,
             input.accountId,
+            conversation.unit_id,
             input.templateName,
             input.language,
           )

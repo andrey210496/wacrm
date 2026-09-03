@@ -227,6 +227,7 @@ export async function planBroadcastResume(
   const resolvedTemplate = await resolveTemplateRow(
     db,
     accountId,
+    broadcast.unit_id,
     broadcast.template_name,
     broadcast.template_language
   );
