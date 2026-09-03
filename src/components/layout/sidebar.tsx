@@ -203,9 +203,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
           <Link href="/dashboard" className="flex items-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/redezap-logo-light.png" alt="RedeZap" className="h-8 w-auto object-contain dark:hidden" />
+            <img src="/redezap-logo-light.png" alt="RedeZap" className="h-11 w-auto object-contain [[data-mode=dark]_&]:hidden" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/redezap-logo-dark.png" alt="RedeZap" className="hidden h-8 w-auto object-contain dark:block" />
+            <img src="/redezap-logo-dark.png" alt="RedeZap" className="hidden h-11 w-auto object-contain [[data-mode=dark]_&]:block" />
           </Link>
           <button
             type="button"

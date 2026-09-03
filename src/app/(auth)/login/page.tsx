@@ -86,9 +86,9 @@ function LoginPageInner() {
             ) : (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/redezap-logo-light.png" alt="RedeZap" className="h-12 w-auto object-contain dark:hidden" />
+                <img src="/redezap-logo-light.png" alt="RedeZap" className="h-12 w-auto object-contain [[data-mode=dark]_&]:hidden" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/redezap-logo-dark.png" alt="RedeZap" className="hidden h-12 w-auto object-contain dark:block" />
+                <img src="/redezap-logo-dark.png" alt="RedeZap" className="hidden h-12 w-auto object-contain [[data-mode=dark]_&]:block" />
               </>
             )}
           </div>
