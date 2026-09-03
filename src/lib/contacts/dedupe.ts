@@ -27,15 +27,20 @@ export interface ExistingContact {
 }
 
 /**
- * Find an existing contact in `accountId` whose phone matches `phone`,
- * or null. Pre-filters in SQL by the last-8-digit suffix (so we don't
- * pull every contact), then applies the strict `phonesMatch` in JS on
- * the small candidate set — the exact approach the webhook has used.
+ * Find an existing contact in `accountId` + `unitId` whose phone matches
+ * `phone`, or null. The same phone can be a lead in two different
+ * unidades (each keeps its own carteira — migration 044), so the
+ * candidate query is scoped by `unit_id` in addition to `account_id`: a
+ * contact with the same phone in a different unit is never matched.
+ * Pre-filters in SQL by the last-8-digit suffix (so we don't pull every
+ * contact), then applies the strict `phonesMatch` in JS on the small
+ * candidate set — the exact approach the webhook has used.
  */
 export async function findExistingContact(
   db: SupabaseClient,
   accountId: string,
   phone: string,
+  unitId: string,
 ): Promise<ExistingContact | null> {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
@@ -46,6 +51,7 @@ export async function findExistingContact(
     .from("contacts")
     .select("*")
     .eq("account_id", accountId)
+    .eq("unit_id", unitId)
     .like("phone", `%${suffix}`);
 
   if (error || !data) return null;
