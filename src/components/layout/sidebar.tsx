@@ -213,11 +213,16 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           className={cn(
             "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors lg:py-2",
             isActive
-              ? "bg-primary/10 font-semibold text-primary before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-primary"
-              : "font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+              ? "bg-muted/70 font-semibold text-foreground before:absolute before:left-0 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-r-full before:bg-primary"
+              : "font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground",
           )}
         >
-          <item.icon className="h-4 w-4 shrink-0" />
+          <item.icon
+            className={cn(
+              "h-4 w-4 shrink-0",
+              isActive ? "text-primary" : "text-muted-foreground/80",
+            )}
+          />
           <span className="flex-1">{t(item.labelKey as string)}</span>
           {item.beta && (
             <span
@@ -269,7 +274,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <aside
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
-          "fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-border bg-card",
+          "fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-border bg-background",
           "transition-transform duration-200 ease-out will-change-transform",
           open ? "translate-x-0" : "-translate-x-full",
           // Desktop: static, always visible — reset all the mobile framing.
