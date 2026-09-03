@@ -116,13 +116,15 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
-  // `.limit(1)` — an account can hold multiple config rows (one per unit,
-  // migration 042) and `.single()` errors on ≥2. Per-unit send routing is
-  // SP2; take one config for the account for now.
+  // Resolved by the broadcast's own `unitId` (migration 042,
+  // UNIQUE(unit_id)) so every recipient is sent FROM that unit's WhatsApp
+  // number. `account_id` stays as defense-in-depth; `.limit(1)` guards a
+  // stray duplicate before `.single()`.
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', unitId)
     .limit(1)
     .single();
   if (configError || !config) {

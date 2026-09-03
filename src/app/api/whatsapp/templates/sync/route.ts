@@ -138,6 +138,8 @@ export async function POST() {
     // .limit(1): an account may hold multiple config rows (one per unit,
     // migration 042); .single() errors on ≥2. WABA/templates are shared
     // across units, so any config syncs the same Meta template set.
+    // OUT OF SCOPE for per-unit send routing (SP1): message_templates is
+    // account-scoped; making templates per-unit needs a schema change.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')

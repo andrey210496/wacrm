@@ -169,6 +169,8 @@ const BROADCAST = {
   id: 'bc-1',
   template_name: 'order_update',
   template_language: 'en_US',
+  // A resume resolves the send config by the broadcast's own unit.
+  unit_id: 'unit-1',
 };
 
 const CONFIG = { phone_number_id: 'pn-1', access_token: 'tok' };
