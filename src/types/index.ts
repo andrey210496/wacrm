@@ -75,6 +75,12 @@ export interface AccountMember {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  /**
+   * The unidade this member is locked to (`profiles.unit_id`), or null
+   * for account-wide "management" visibility. Only agent/viewer rows are
+   * meaningfully scoped by it; owner/admin see every unit regardless.
+   */
+  unit_id: string | null;
 }
 
 /**
