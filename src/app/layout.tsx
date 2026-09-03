@@ -31,8 +31,8 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: "RedeZap",
+    template: "%s — RedeZap",
   },
   description: "Self-hostable CRM template for WhatsApp.",
   robots: {
