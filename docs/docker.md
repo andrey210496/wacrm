@@ -98,6 +98,13 @@ For each client:
      flipping this on), not self-signed-up for. Internal invites
      (`owner`/`admin` → `admin`/`agent`/`viewer` via `/join/<token>`)
      keep working regardless — see `.env.local.example`.
+
+     **This only closes the app's own signup page.** The client SDK
+     calls Supabase GoTrue directly, so an attacker can still register
+     via Supabase's `/auth/v1/signup` endpoint even with this set. To
+     truly prevent account creation you MUST ALSO disable signups at the
+     Supabase project level: **Authentication → Providers/Settings →
+     disable email signups**. Do both on every SILO deploy.
 5. **Healthcheck**: point EasyPanel's healthcheck at `/` (the same
    check `docker-compose.yml` uses — `GET /` expecting a non-5xx
    response) on the container's port `3000`.

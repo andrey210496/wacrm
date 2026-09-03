@@ -32,6 +32,31 @@ is never inferred from an error, a timeout, or silence. See
 `src/lib/license/state.ts` (`getLicenseStatus`) for the reference
 implementation of this behavior.
 
+## Enforcement scope (what suspend actually blocks)
+
+`isSuspended()` is a **dashboard-only soft lock**. When the instance is
+suspended it only gates the Next.js dashboard UI — an authenticated
+browser session hitting a dashboard route is redirected to
+`/suspended`. That is the whole of the enforcement in v1.
+
+It is deliberately **not** a hard cutoff. The following keep working
+while an instance is `'suspended'`:
+
+- **Inbound webhooks** (`/api/whatsapp/webhook/*`) — messages still
+  arrive and are processed.
+- **The public API** (`/api/v1/*`) — key-authenticated calls still run.
+- **Outbound WhatsApp sends** (`/api/whatsapp/*`) — the number can
+  still send.
+- **Direct browser → Supabase traffic** — anything that talks to
+  Supabase over RLS (the client SDK) is never routed through the Next
+  server, so the redirect never sees it.
+
+A true hard cutoff — rotating/revoking keys, disabling the WhatsApp
+number, or cutting the Supabase project off — is an **SP2
+control-plane concern**, not something the v1 dashboard gate provides.
+Treat suspend as "the operator can no longer use the admin UI", not
+"the instance is switched off".
+
 ## `POST /api/license/apply`
 
 Called by the control plane to change this instance's license
