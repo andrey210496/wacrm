@@ -15,6 +15,7 @@ export default defineConfig({
       ENCRYPTION_KEY:
         "0000000000000000000000000000000000000000000000000000000000000000",
       META_APP_SECRET: "test-meta-app-secret",
+      GATEWAY_RELAY_SECRET: "test-gateway-relay-secret",
     },
     clearMocks: true,
   },
