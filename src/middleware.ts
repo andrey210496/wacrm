@@ -96,9 +96,14 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // API routes that need auth (not webhooks)
+  // API routes that need auth (not webhooks / relay). The relay
+  // endpoint is called server-to-server by the WhatsApp Gateway central
+  // (Gestão USAI) and authenticates itself with an HMAC relay signature,
+  // not a browser session — so it must bypass the session gate exactly
+  // like the direct Meta webhook does.
   if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+      !request.nextUrl.pathname.includes('/webhook') &&
+      !request.nextUrl.pathname.includes('/relay')) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )
