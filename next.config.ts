@@ -69,6 +69,12 @@ const nextConfig: NextConfig = {
   // Harmless outside Docker: `next start` keeps working as before.
   output: "standalone",
 
+  // Fixa a raiz do tracing na pasta do app. Sem isso, o Next infere a raiz
+  // ACIMA do wacrm (o Desktop tem outros projetos/lockfiles) e aninha o
+  // standalone em `.next/standalone/wacrm/server.js` — o que quebra o
+  // `CMD ["node", "server.js"]` do Dockerfile. Com isso, fica flat.
+  outputFileTracingRoot: process.cwd(),
+
   /**
    * Cross-origin dev access (Next.js 16).
    *
