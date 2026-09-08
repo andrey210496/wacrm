@@ -6,6 +6,7 @@ import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ThemedToaster } from "@/components/themed-toaster";
+import { readPublicEnv } from "@/lib/public-env";
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
@@ -14,6 +15,14 @@ import {
   STORAGE_KEY,
   THEME_IDS,
 } from "@/lib/themes";
+
+// Renderiza toda a árvore em tempo de request. Sem isso, páginas como /login e
+// /signup são pré-renderizadas no BUILD, e o `window.__ENV__` injetado abaixo
+// carregaria os valores do build (vazios na imagem SILO genérica) em vez dos do
+// runtime do container. Forçar dinâmico garante que a config pública do Supabase
+// injetada reflita o env do container — é o que permite 1 imagem servir cada
+// instância com o seu próprio Supabase. Ver src/lib/public-env.ts.
+export const dynamic = "force-dynamic";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -91,6 +100,12 @@ export default async function RootLayout({
   const locale = await getLocale();
   const messages = await getMessages();
 
+  // Config pública lida do env de RUNTIME do servidor, injetada antes da
+  // hidratação (window.__ENV__) pro browser client do Supabase — 1 imagem,
+  // muitos clientes SILO. Só URL + anon key (públicas); nada de segredo.
+  const publicEnv = readPublicEnv();
+  const ENV_BOOT_SCRIPT = `window.__ENV__=${JSON.stringify(publicEnv)};`;
+
   return (
     <html
       lang={locale}
@@ -107,6 +122,11 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <Script
+          id="env-boot"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: ENV_BOOT_SCRIPT }}
+        />
         <Script
           id="theme-boot"
           strategy="beforeInteractive"
