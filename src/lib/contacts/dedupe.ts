@@ -21,8 +21,11 @@ export function normalizeKey(phone: string): string {
 /** Minimal shape we need back from a contacts lookup. */
 export interface ExistingContact {
   id: string;
-  phone: string;
+  // Nullable desde a migration 050: um contato só-BSUID (usuário escondeu o
+  // número via username) não tem telefone.
+  phone: string | null;
   name?: string | null;
+  bsuid?: string | null;
   [key: string]: unknown;
 }
 
@@ -57,8 +60,35 @@ export async function findExistingContact(
   if (error || !data) return null;
 
   return (
-    (data as ExistingContact[]).find((c) => phonesMatch(c.phone, phone)) ?? null
+    (data as ExistingContact[]).find(
+      (c) => c.phone != null && phonesMatch(c.phone, phone),
+    ) ?? null
   );
+}
+
+/**
+ * Find an existing contact in `accountId` + `unitId` by its Business-Scoped
+ * User ID (BSUID), or null. Usado quando o inbound vem sem telefone (usuário
+ * com username que escondeu o número): a identidade estável é o `user_id` da
+ * Meta. Escopo por unidade, como o telefone (cada unidade tem sua carteira).
+ */
+export async function findContactByBsuid(
+  db: SupabaseClient,
+  accountId: string,
+  bsuid: string,
+  unitId: string,
+): Promise<ExistingContact | null> {
+  if (!bsuid) return null;
+  const { data, error } = await db
+    .from("contacts")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("unit_id", unitId)
+    .eq("bsuid", bsuid)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as ExistingContact;
 }
 
 /**
@@ -67,7 +97,7 @@ export async function findExistingContact(
  * exact matches but only warns on fuzzy ones.
  */
 export function isExactMatch(existing: ExistingContact, phone: string): boolean {
-  return normalizeKey(existing.phone) === normalizeKey(phone);
+  return normalizeKey(existing.phone ?? '') === normalizeKey(phone);
 }
 
 /**

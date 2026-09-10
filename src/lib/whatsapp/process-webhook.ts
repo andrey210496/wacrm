@@ -2,9 +2,9 @@ import { createClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { getMediaUrl } from '@/lib/whatsapp/meta-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
-import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { recordDeadLetter } from '@/lib/whatsapp/deadletter'
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
+import { findExistingContact, findContactByBsuid, isUniqueViolation } from '@/lib/contacts/dedupe'
+import { resolveInboundIdentity, type InboundIdentity } from '@/lib/contacts/identity'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
@@ -30,7 +30,10 @@ export function supabaseAdmin() {
 
 interface WhatsAppMessage {
   id: string
-  from: string
+  // `from` (telefone) some quando o usuário escondeu o número (username). O
+  // BSUID vem em `from_user_id` — SEMPRE presente (migration 050 / Meta 2026).
+  from?: string
+  from_user_id?: string
   timestamp: string
   type: string
   text?: { body: string }
@@ -76,7 +79,11 @@ export interface WhatsAppWebhookEntry {
       }
       contacts?: Array<{
         profile: { name: string }
-        wa_id: string
+        // wa_id (telefone) só quando disponível; user_id (BSUID) sempre;
+        // username quando o usuário ativou (migration 050 / Meta 2026).
+        wa_id?: string
+        user_id?: string
+        username?: string
       }>
       messages?: WhatsAppMessage[]
       statuses?: Array<{
@@ -473,7 +480,12 @@ async function handleReaction(
 
 async function processMessage(
   message: WhatsAppMessage,
-  contact: { profile: { name: string }; wa_id: string },
+  contact: {
+    profile: { name: string }
+    wa_id?: string
+    user_id?: string
+    username?: string
+  },
   // Tenancy. Resolved from the matched whatsapp_config row; every
   // contact / conversation / message row created downstream is
   // stamped with this so any member of the account can see it.
@@ -493,16 +505,16 @@ async function processMessage(
   // See parseMessageContent for what it turns off.
   mirrorMedia: boolean
 ) {
-  const senderPhone = normalizePhone(message.from)
-  const contactName = contact.profile.name
+  // Identidade: telefone se houver, senão o BSUID (username). O BSUID é sempre
+  // guardado para religar o mesmo usuário quando o telefone aparecer depois.
+  const identity = resolveInboundIdentity(contact, message)
 
-  // Find or create contact
+  // Find or create contact (por telefone OU bsuid, com merge)
   const contactOutcome = await findOrCreateContact(
     accountId,
     unitId,
     configOwnerUserId,
-    senderPhone,
-    contactName
+    identity
   )
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
@@ -1019,68 +1031,128 @@ interface ContactOutcome {
   wasCreated: boolean
 }
 
+/** Escolhe o contato canônico num merge: o mais antigo (created_at). */
+function pickCanonical(a: ContactRow, b: ContactRow): ContactRow {
+  const ta = new Date(a.created_at ?? 0).getTime()
+  const tb = new Date(b.created_at ?? 0).getTime()
+  return ta <= tb ? a : b
+}
+
+/**
+ * Merge best-effort de dois contatos: move as conversas e reações do duplicado
+ * para o canônico e apaga o duplicado. Nunca lança — em falha, loga e segue
+ * (o pior caso é histórico dividido, nunca perda de mensagem).
+ */
+async function mergeContacts(
+  admin: ReturnType<typeof supabaseAdmin>,
+  canonicalId: string,
+  duplicateId: string,
+): Promise<void> {
+  try {
+    await admin
+      .from('conversations')
+      .update({ contact_id: canonicalId })
+      .eq('contact_id', duplicateId)
+    await admin
+      .from('message_reactions')
+      .update({ actor_id: canonicalId })
+      .eq('actor_id', duplicateId)
+      .eq('actor_type', 'customer')
+    await admin.from('contacts').delete().eq('id', duplicateId)
+  } catch (err) {
+    console.error('[webhook] merge de contatos falhou (não-fatal):', err)
+  }
+}
+
 async function findOrCreateContact(
   accountId: string,
   unitId: string,
   configOwnerUserId: string,
-  phone: string,
-  name: string
+  identity: InboundIdentity
 ): Promise<ContactOutcome | null> {
-  // Find an existing contact for this account + unit by phone. The
-  // shared helper pre-filters in SQL by the last-8-digit suffix (so we
-  // don't pull every contact on every inbound message) then applies the
-  // strict `phonesMatch` in JS on the small candidate set. The same
-  // helper backs the manual contact form and CSV import, so all three
-  // paths agree on what "same number" means (issue #212). Dedup is now
-  // scoped to the unit — the same phone can be a separate lead in a
-  // different unit's pool (migration 044).
-  const existingContact = await findExistingContact(
-    supabaseAdmin(),
-    accountId,
-    phone,
-    unitId,
-  )
+  const admin = supabaseAdmin()
+  const { phone, bsuid, username, name } = identity
 
-  if (existingContact) {
-    // Update name if it changed
-    if (name && name !== existingContact.name) {
-      await supabaseAdmin()
-        .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
-        .eq('id', existingContact.id)
-    }
-    return { contact: existingContact, wasCreated: false }
+  // Resolve por telefone (se houver) e por BSUID (se houver). Dedup por
+  // telefone reusa o helper compartilhado (form/CSV/webhook concordam no que é
+  // "mesmo número", issue #212); por BSUID casa a identidade estável da Meta.
+  const byPhone = phone
+    ? await findExistingContact(admin, accountId, phone, unitId)
+    : null
+  const byBsuid = bsuid
+    ? await findContactByBsuid(admin, accountId, bsuid, unitId)
+    : null
+
+  // MERGE (decisão B2): telefone e BSUID apontam para contatos DIFERENTES — o
+  // usuário (antes só-BSUID) revelou o telefone e já havia um contato por
+  // telefone. Colapsa no mais antigo e move as conversas.
+  if (byPhone && byBsuid && byPhone.id !== byBsuid.id) {
+    const canonical = pickCanonical(byPhone, byBsuid)
+    const duplicate = canonical.id === byPhone.id ? byBsuid : byPhone
+    await mergeContacts(admin, canonical.id, duplicate.id)
+    await admin
+      .from('contacts')
+      .update({
+        phone: phone ?? canonical.phone ?? null,
+        bsuid: bsuid ?? canonical.bsuid ?? null,
+        ...(username ? { username } : {}),
+        ...(name ? { name } : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', canonical.id)
+    const { data: merged } = await admin
+      .from('contacts')
+      .select('*')
+      .eq('id', canonical.id)
+      .single()
+    return { contact: merged ?? canonical, wasCreated: false }
   }
 
-  // Create new contact. account_id is the tenancy column;
-  // user_id is the NOT NULL FK audit column (no inbound message
-  // has a single "user who created" it — we attribute to the
-  // WhatsApp config owner as a stable default).
-  const { data: newContact, error: createError } = await supabaseAdmin()
+  // Achou por um dos dois (ou o mesmo): atualiza/religa e retorna. É aqui que um
+  // contato só-BSUID ganha o telefone quando ele finalmente aparece (e vice).
+  const existing = byPhone ?? byBsuid
+  if (existing) {
+    const patch: Record<string, unknown> = {}
+    if (name && name !== existing.name) patch.name = name
+    if (phone && !existing.phone) patch.phone = phone
+    if (bsuid && !existing.bsuid) patch.bsuid = bsuid
+    if (username && username !== existing.username) patch.username = username
+    if (Object.keys(patch).length > 0) {
+      patch.updated_at = new Date().toISOString()
+      await admin.from('contacts').update(patch).eq('id', existing.id)
+      return { contact: { ...existing, ...patch }, wasCreated: false }
+    }
+    return { contact: existing, wasCreated: false }
+  }
+
+  // Não achou. Precisa de pelo menos telefone OU bsuid pra criar.
+  if (!phone && !bsuid) {
+    console.error('[webhook] inbound sem telefone e sem BSUID — ignorado')
+    return null
+  }
+
+  const { data: newContact, error: createError } = await admin
     .from('contacts')
     .insert({
       account_id: accountId,
       unit_id: unitId,
       user_id: configOwnerUserId,
-      phone,
-      name: name || phone,
+      phone: phone ?? null,
+      bsuid: bsuid ?? null,
+      username: username ?? null,
+      name: name || phone || (username ? `@${username}` : 'Usuário WhatsApp'),
     })
     .select()
     .single()
 
   if (createError) {
-    // Lost a race: a concurrent inbound delivery (or another path)
-    // created this contact between our lookup and insert, and the
-    // unique index (migration 044, now per (account, unit, phone))
-    // rejected the duplicate. Re-resolve the existing row instead of
-    // dropping the message.
+    // Corrida: outra entrega concorrente criou o contato entre a busca e o
+    // insert; o índice unique (telefone per (account,unit) — migration 044 — ou
+    // bsuid per (account,unit) — migration 050) rejeitou. Re-resolve.
     if (isUniqueViolation(createError)) {
-      const raced = await findExistingContact(
-        supabaseAdmin(),
-        accountId,
-        phone,
-        unitId,
-      )
+      const raced =
+        (phone ? await findExistingContact(admin, accountId, phone, unitId) : null) ??
+        (bsuid ? await findContactByBsuid(admin, accountId, bsuid, unitId) : null)
       if (raced) return { contact: raced, wasCreated: false }
     }
     console.error('Error creating contact:', createError)
