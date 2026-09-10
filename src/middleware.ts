@@ -103,7 +103,10 @@ export async function middleware(request: NextRequest) {
   // like the direct Meta webhook does.
   if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
       !request.nextUrl.pathname.includes('/webhook') &&
-      !request.nextUrl.pathname.includes('/relay')) {
+      !request.nextUrl.pathname.includes('/relay') &&
+      // O worker de retry da dead-letter é acionado por cron (server-to-server),
+      // autenticado por x-cron-secret, não por sessão — igual webhook/relay.
+      !request.nextUrl.pathname.includes('/deadletter/drain')) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )

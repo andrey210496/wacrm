@@ -1,14 +1,11 @@
 -- ============================================================
--- RedeZap SILO — bundle completo de schema (migrations 001..048)
--- Gerado em: 2026-09-08T17:16:34Z
+-- RedeZap SILO — bundle completo de schema (migrations 001..049)
+-- Gerado em: 2026-09-10T14:54:18Z
 -- Uso: colar INTEIRO no SQL Editor de um projeto Supabase NOVO/vazio.
--- Ordem preservada. Idempotência depende de cada migration.
 -- ============================================================
 
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/001_initial_schema.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/001_initial_schema.sql
 -- ============================================================
 -- Idempotent migration — safe to run multiple times.
 -- Uses IF NOT EXISTS for tables/indexes and DROP IF EXISTS
@@ -434,9 +431,7 @@ END $$;
 
 -- <<< END supabase/migrations/001_initial_schema.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/002_pipelines_enhancements.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/002_pipelines_enhancements.sql
 -- ============================================================
 -- Pipeline enhancements:
 --   * deals.assigned_to — optional FK to profiles.id
@@ -474,9 +469,7 @@ ALTER TABLE deals
 
 -- <<< END supabase/migrations/002_pipelines_enhancements.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/003_broadcast_recipient_wamid.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/003_broadcast_recipient_wamid.sql
 -- ============================================================
 -- Broadcast recipient correlation + aggregate counts
 --
@@ -564,9 +557,7 @@ FOR EACH ROW EXECUTE FUNCTION public.broadcast_recipient_aggregate_trigger();
 
 -- <<< END supabase/migrations/003_broadcast_recipient_wamid.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/004_contact_delete_set_null.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/004_contact_delete_set_null.sql
 -- ============================================================
 -- Allow contact deletion without wiping history.
 --
@@ -635,9 +626,7 @@ ALTER TABLE deals
 
 -- <<< END supabase/migrations/004_contact_delete_set_null.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/005_broadcast_counts_incremental.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/005_broadcast_counts_incremental.sql
 -- ============================================================
 -- Incremental broadcast aggregate trigger.
 --
@@ -770,9 +759,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- <<< END supabase/migrations/005_broadcast_counts_incremental.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/006_automations.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/006_automations.sql
 -- ============================================================
 -- 006_automations.sql — Automations feature
 --
@@ -916,9 +903,7 @@ ALTER TABLE automation_pending_executions ENABLE ROW LEVEL SECURITY;
 
 -- <<< END supabase/migrations/006_automations.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/007_automations_increment_counter.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/007_automations_increment_counter.sql
 -- ============================================================
 -- 007_automations_increment_counter.sql
 --
@@ -957,9 +942,7 @@ GRANT EXECUTE ON FUNCTION increment_automation_execution_count(UUID) TO service_
 
 -- <<< END supabase/migrations/007_automations_increment_counter.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/008_profile_avatars_storage.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/008_profile_avatars_storage.sql
 -- ============================================================
 -- 008_profile_avatars_storage.sql
 --
@@ -1022,9 +1005,7 @@ CREATE POLICY "Users can delete their own avatar"
 
 -- <<< END supabase/migrations/008_profile_avatars_storage.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/009_message_actions.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/009_message_actions.sql
 -- ============================================================
 -- Chat actions: reply linkage + reactions
 --
@@ -1142,9 +1123,7 @@ END $$;
 
 -- <<< END supabase/migrations/009_message_actions.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/010_flows.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/010_flows.sql
 -- ============================================================
 -- Conversational Flows: stateful, branching WhatsApp chatbot.
 --
@@ -1428,9 +1407,7 @@ END $$;
 
 -- <<< END supabase/migrations/010_flows.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/011_profile_beta_features.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/011_profile_beta_features.sql
 -- ============================================================
 -- Per-account beta feature flag column on `profiles`.
 --
@@ -1474,9 +1451,7 @@ ALTER TABLE profiles
 
 -- <<< END supabase/migrations/011_profile_beta_features.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/012_flows_increment_counter.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/012_flows_increment_counter.sql
 -- ============================================================
 -- 012_flows_increment_counter.sql
 --
@@ -1516,9 +1491,7 @@ GRANT EXECUTE ON FUNCTION increment_flow_execution_count(UUID) TO service_role;
 
 -- <<< END supabase/migrations/012_flows_increment_counter.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/013_whatsapp_config_phone_number_id_unique.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/013_whatsapp_config_phone_number_id_unique.sql
 -- ============================================================
 -- whatsapp_config: enforce one user per phone_number_id
 --
@@ -1606,9 +1579,7 @@ END $$;
 
 -- <<< END supabase/migrations/013_whatsapp_config_phone_number_id_unique.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/014_message_templates_meta_integration.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/014_message_templates_meta_integration.sql
 -- ============================================================
 -- message_templates: Meta-integration columns + raw-enum status
 --
@@ -1810,9 +1781,7 @@ CREATE INDEX IF NOT EXISTS idx_message_templates_meta_template_id
 
 -- <<< END supabase/migrations/014_message_templates_meta_integration.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/015_whatsapp_config_registration.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/015_whatsapp_config_registration.sql
 -- ============================================================
 -- whatsapp_config: track Meta Cloud API registration state
 --
@@ -1861,9 +1830,7 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_config_registered_at
 
 -- <<< END supabase/migrations/015_whatsapp_config_registration.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/016_flow_media.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/016_flow_media.sql
 -- ============================================================
 -- 016_flow_media.sql
 --
@@ -1981,9 +1948,7 @@ CREATE POLICY "Users can delete their own flow media"
 
 -- <<< END supabase/migrations/016_flow_media.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/017_account_sharing.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/017_account_sharing.sql
 -- ============================================================
 -- 017_account_sharing.sql — Multi-user accounts (foundation)
 --
@@ -2676,9 +2641,7 @@ CREATE TRIGGER on_auth_user_created
 
 -- <<< END supabase/migrations/017_account_sharing.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/018_account_member_rpcs.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/018_account_member_rpcs.sql
 -- ============================================================
 -- 018_account_member_rpcs.sql — RPCs for member management
 --
@@ -2965,9 +2928,7 @@ GRANT EXECUTE ON FUNCTION public.transfer_account_ownership(UUID) TO authenticat
 
 -- <<< END supabase/migrations/018_account_member_rpcs.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/019_invitation_rpcs.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/019_invitation_rpcs.sql
 -- ============================================================
 -- 019_invitation_rpcs.sql — peek + redeem invitation RPCs
 --
@@ -3208,9 +3169,7 @@ GRANT EXECUTE ON FUNCTION public.redeem_invitation(TEXT) TO authenticated;
 
 -- <<< END supabase/migrations/019_invitation_rpcs.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/020_account_sharing_followups.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/020_account_sharing_followups.sql
 -- ============================================================
 -- 020_account_sharing_followups.sql — review-board fixes for
 -- the multi-user accounts series (#167-#177).
@@ -3336,9 +3295,7 @@ CREATE POLICY "Members can delete flow media"
 
 -- <<< END supabase/migrations/020_account_sharing_followups.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/021_account_default_currency.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/021_account_default_currency.sql
 -- ============================================================
 -- 021_account_default_currency
 --
@@ -3374,9 +3331,7 @@ ALTER TABLE accounts
 
 -- <<< END supabase/migrations/021_account_default_currency.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/022_contact_phone_dedup.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/022_contact_phone_dedup.sql
 -- ============================================================
 -- 022_contact_phone_dedup
 --
@@ -3500,9 +3455,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_phone_normalized
 
 -- <<< END supabase/migrations/022_contact_phone_dedup.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/023_chat_media.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/023_chat_media.sql
 -- ============================================================
 -- 023_chat_media.sql
 --
@@ -3628,9 +3581,7 @@ CREATE POLICY "Members can delete chat media"
 
 -- <<< END supabase/migrations/023_chat_media.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/024_member_presence.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/024_member_presence.sql
 -- ============================================================
 -- 024_member_presence.sql — team member presence (online / away)
 --
@@ -3735,9 +3686,7 @@ END $$;
 
 -- <<< END supabase/migrations/024_member_presence.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/025_filter_contacts_by_tags.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/025_filter_contacts_by_tags.sql
 -- ============================================================
 -- 025_filter_contacts_by_tags.sql — server-side tag filter
 --
@@ -3816,9 +3765,7 @@ GRANT EXECUTE ON FUNCTION public.filter_contacts_by_tags(UUID[], TEXT, INT, INT)
 
 -- <<< END supabase/migrations/025_filter_contacts_by_tags.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/026_api_keys.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/026_api_keys.sql
 -- ============================================================
 -- 026_api_keys.sql — Public API credentials (groundwork)
 --
@@ -3906,9 +3853,7 @@ CREATE POLICY api_keys_delete ON api_keys FOR DELETE
 
 -- <<< END supabase/migrations/026_api_keys.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/027_notifications.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/027_notifications.sql
 -- ============================================================
 -- NOTIFICATIONS
 -- ============================================================
@@ -4043,9 +3988,7 @@ END $$;
 
 -- <<< END supabase/migrations/027_notifications.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/028_webhook_endpoints.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/028_webhook_endpoints.sql
 -- ============================================================
 -- 028_webhook_endpoints.sql — Outbound event webhooks (public API)
 --
@@ -4152,9 +4095,7 @@ $$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
 
 -- <<< END supabase/migrations/028_webhook_endpoints.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/029_ai_reply.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/029_ai_reply.sql
 -- ============================================================
 -- 029_ai_reply.sql — AI reply assistant (bring-your-own-key)
 --
@@ -4299,9 +4240,7 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 
 -- <<< END supabase/migrations/029_ai_reply.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/030_ai_knowledge.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/030_ai_knowledge.sql
 -- ============================================================
 -- 030_ai_knowledge.sql — AI knowledge base (RAG grounding)
 --
@@ -4509,9 +4448,7 @@ GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer
 
 -- <<< END supabase/migrations/030_ai_knowledge.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/031_ai_reply_slot_grant.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/031_ai_reply_slot_grant.sql
 -- ============================================================
 -- 031_ai_reply_slot_grant.sql — fix: AI auto-reply never fires
 --
@@ -4542,9 +4479,7 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 
 -- <<< END supabase/migrations/031_ai_reply_slot_grant.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/032_fix_ai_knowledge_membership.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/032_fix_ai_knowledge_membership.sql
 -- ============================================================
 -- 032_fix_ai_knowledge_membership.sql — stop cross-account KB
 --                                        reads (GHSA-fg5p-2qc3-jmxr, H2)
@@ -4648,9 +4583,7 @@ GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer
 
 -- <<< END supabase/migrations/032_fix_ai_knowledge_membership.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/033_ai_reply_polish.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/033_ai_reply_polish.sql
 -- ============================================================
 -- 033_ai_reply_polish.sql — AI reply assistant polish
 --
@@ -4740,9 +4673,7 @@ CREATE POLICY ai_usage_log_select ON ai_usage_log FOR SELECT
 
 -- <<< END supabase/migrations/033_ai_reply_polish.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/034_fix_profiles_update_rls.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/034_fix_profiles_update_rls.sql
 -- ============================================================
 -- 034_fix_profiles_update_rls.sql — lock down privilege columns
 --                                    on profiles (GHSA-fg5p-2qc3-jmxr, C1)
@@ -4843,9 +4774,7 @@ CREATE TRIGGER enforce_profile_privilege_columns
 
 -- <<< END supabase/migrations/034_fix_profiles_update_rls.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/035_interactive_messages.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/035_interactive_messages.sql
 -- ============================================================
 -- 035_interactive_messages.sql
 --
@@ -4910,9 +4839,7 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON quick_replies
 
 -- <<< END supabase/migrations/035_interactive_messages.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/036_conversation_contact_dedup.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/036_conversation_contact_dedup.sql
 -- ============================================================
 -- 036_conversation_contact_dedup
 --
@@ -5042,9 +4969,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_account_contact
 
 -- <<< END supabase/migrations/036_conversation_contact_dedup.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/037_webhook_broadcast_reliability.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/037_webhook_broadcast_reliability.sql
 -- ============================================================
 -- 037_webhook_broadcast_reliability
 --
@@ -5202,9 +5127,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 
 -- <<< END supabase/migrations/037_webhook_broadcast_reliability.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/038_broadcast_resume.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/038_broadcast_resume.sql
 -- ============================================================
 -- 038_broadcast_resume
 --
@@ -5323,9 +5246,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 
 -- <<< END supabase/migrations/038_broadcast_resume.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/039_inbound_media_mirror.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/039_inbound_media_mirror.sql
 -- ============================================================
 -- 039_inbound_media_mirror
 --
@@ -5452,9 +5373,7 @@ SET
 
 -- <<< END supabase/migrations/039_inbound_media_mirror.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/040_unidades.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/040_unidades.sql
 -- 040_unidades.sql — the "unidade" (unit) tenancy level between accounts and data.
 -- One account (client) has N unidades; each unidade owns one WhatsApp number and
 -- its own lead pool. Idempotent.
@@ -5490,9 +5409,7 @@ CREATE POLICY unidades_delete ON unidades FOR DELETE USING (is_account_member(ac
 
 -- <<< END supabase/migrations/040_unidades.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/041_profiles_unit_scope.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/041_profiles_unit_scope.sql
 -- 041_profiles_unit_scope.sql — assign a user to a unit + the visibility helper.
 -- owner/admin: unit_id irrelevant, they see ALL units (role >= admin).
 -- agent/viewer: see ONLY rows whose unit_id == their profiles.unit_id.
@@ -5536,9 +5453,7 @@ GRANT EXECUTE ON FUNCTION can_see_unit(UUID, UUID) TO authenticated, service_rol
 
 -- <<< END supabase/migrations/041_profiles_unit_scope.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/042_whatsapp_config_unit.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/042_whatsapp_config_unit.sql
 -- 042_whatsapp_config_unit.sql — one WhatsApp number PER UNIT (was per account).
 -- Backfill: every existing account gets a "Matriz" unidade, and its existing
 -- whatsapp_config row (if any) is linked to it. Keeps UNIQUE(phone_number_id)
@@ -5577,9 +5492,7 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_config_unit ON whatsapp_config(unit_id);
 
 -- <<< END supabase/migrations/042_whatsapp_config_unit.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/043_operational_unit_id.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/043_operational_unit_id.sql
 -- 043_operational_unit_id.sql — stamp unit_id on every operational parent table.
 -- Backfill points existing rows at the account's Matriz unidade. Idempotent.
 
@@ -5625,9 +5538,7 @@ CREATE INDEX IF NOT EXISTS idx_flows_unit         ON flows(unit_id);
 
 -- <<< END supabase/migrations/043_operational_unit_id.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/044_contacts_unit_dedup.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/044_contacts_unit_dedup.sql
 -- 044_contacts_unit_dedup.sql — the same phone can be a lead in two different
 -- unidades (each keeps its own carteira), so dedup is now per (account, unit, phone).
 -- Replaces the (account_id, phone_normalized) index from migration 022. Idempotent.
@@ -5640,9 +5551,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_unit_phone_normalized
 
 -- <<< END supabase/migrations/044_contacts_unit_dedup.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/045_rls_unit_scoping.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/045_rls_unit_scoping.sql
 -- 045_rls_unit_scoping.sql — agent/viewer see only their unit; admin+ see all.
 -- Parent tables get an extra can_see_unit(account_id, unit_id) predicate;
 -- child tables inherit the parent's unit via the existing join. Idempotent
@@ -5843,9 +5752,7 @@ CREATE POLICY message_reactions_modify ON message_reactions FOR ALL USING (
 
 -- <<< END supabase/migrations/045_rls_unit_scoping.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/046_license_state.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/046_license_state.sql
 -- 046_license_state.sql — single-row local license state for this SILO instance.
 -- The control plane (SP2) flips `status` via /api/license/apply. Fail-open: the
 -- app reads the last known value; if the row is missing it treats the instance
@@ -5866,9 +5773,7 @@ ALTER TABLE license_state ENABLE ROW LEVEL SECURITY;
 
 -- <<< END supabase/migrations/046_license_state.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/047_unit_isolation_hardening.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/047_unit_isolation_hardening.sql
 -- 047_unit_isolation_hardening.sql
 -- Fecha as brechas de isolamento por unidade encontradas na auditoria e
 -- conserta o envio de transmissão sob a coluna unit_id NOT NULL. Idempotente.
@@ -5947,9 +5852,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, UU
 
 -- <<< END supabase/migrations/047_unit_isolation_hardening.sql
 
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
--- BEGIN supabase/migrations/048_message_templates_unit.sql
--- >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+-- >>> BEGIN supabase/migrations/048_message_templates_unit.sql
 -- 048_message_templates_unit.sql
 -- Templates pertencem ao WABA (número) de uma unidade — um mesmo nome/idioma
 -- pode existir por unidade. Adiciona unit_id, backfill p/ a unidade mais antiga
@@ -5995,3 +5898,50 @@ CREATE POLICY message_templates_delete ON message_templates FOR DELETE
   USING (is_account_member(account_id, 'admin') AND can_see_unit(account_id, unit_id));
 
 -- <<< END supabase/migrations/048_message_templates_unit.sql
+
+-- >>> BEGIN supabase/migrations/049_inbound_deadletter.sql
+-- ============================================================
+-- 049 · Dead-letter de inbound do WhatsApp.
+--
+-- O webhook/relay SEMPRE responde 200 pra Meta (pra ela não re-tentar em loop),
+-- então qualquer evento que o processamento descartava (`continue`) era perdido
+-- de forma DEFINITIVA: erro transitório de banco, número sem config (provisão
+-- quebrada), config duplicado, ou mensagem sem contato (BSUID/username).
+--
+-- Esta tabela guarda o evento cru + motivo ANTES do descarte, para não perder
+-- nada e permitir reprocessamento idempotente (o dedup por message_id já existe)
+-- e alerta no painel.
+--
+-- Idempotente — seguro rodar múltiplas vezes.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS whatsapp_inbound_deadletter (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  -- Chave de idempotência: hash de (phone_number_id + ids das mensagens do
+  -- evento). Impede duplicar a linha quando o MESMO evento cai na dead-letter
+  -- de novo (Meta reenviando, ou um reprocesso que ainda falha). UNIQUE.
+  idempotency_key TEXT NOT NULL UNIQUE,
+  phone_number_id TEXT,
+  raw_event       JSONB NOT NULL, -- o `value` da mudança (metadata + messages + contacts)
+  reason          TEXT NOT NULL CHECK (
+                    reason IN ('no_contacts', 'db_error', 'no_config', 'multiple_configs', 'parse_error')
+                  ),
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK (
+                    status IN ('pending', 'reprocessed', 'failed', 'ignored')
+                  ),
+  attempts        INT NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_deadletter_status  ON whatsapp_inbound_deadletter(status);
+CREATE INDEX IF NOT EXISTS idx_deadletter_created ON whatsapp_inbound_deadletter(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deadletter_pnid    ON whatsapp_inbound_deadletter(phone_number_id);
+
+-- RLS ligada SEM policy = deny-all para anon/authenticated. O acesso é só via
+-- service-role (o processamento do webhook e o worker de retry usam o admin
+-- client, que ignora RLS) e via rota admin do servidor. Nunca exposto ao browser.
+ALTER TABLE whatsapp_inbound_deadletter ENABLE ROW LEVEL SECURITY;
+
+-- <<< END supabase/migrations/049_inbound_deadletter.sql
