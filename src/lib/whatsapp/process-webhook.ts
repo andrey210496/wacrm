@@ -3,6 +3,7 @@ import { decrypt } from '@/lib/whatsapp/encryption'
 import { getMediaUrl } from '@/lib/whatsapp/meta-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
+import { recordDeadLetter } from '@/lib/whatsapp/deadletter'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
@@ -117,7 +118,18 @@ export async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       }
 
       // Handle incoming messages
-      if (!value.messages || !value.contacts) continue
+      if (!value.messages) continue // sem mensagens = evento não-inbound (status já tratado)
+      if (!value.contacts) {
+        // Tem mensagem mas sem bloco de contato — hoje é o caso BSUID/username
+        // (inbound sem telefone). Em vez de descartar de vez, grava na
+        // dead-letter (a Feature B trata esses; até lá, nada se perde).
+        await recordDeadLetter(supabaseAdmin(), {
+          phoneNumberId: value.metadata?.phone_number_id,
+          value,
+          reason: 'no_contacts',
+        })
+        continue
+      }
 
       const phoneNumberId = value.metadata.phone_number_id
 
@@ -137,11 +149,25 @@ export async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           phoneNumberId,
           configError
         )
+        // Erro TRANSITÓRIO de banco — o worker de retry reprocessa (não perde).
+        await recordDeadLetter(supabaseAdmin(), {
+          phoneNumberId,
+          value,
+          reason: 'db_error',
+          lastError: configError.message,
+        })
         continue
       }
 
       if (!configRows || configRows.length === 0) {
         console.error('No config found for phone_number_id:', phoneNumberId)
+        // Número roteado pra esta instância mas SEM config (provisão quebrada).
+        // Guarda pra alerta + reprocesso quando o config existir.
+        await recordDeadLetter(supabaseAdmin(), {
+          phoneNumberId,
+          value,
+          reason: 'no_config',
+        })
         continue
       }
 
@@ -153,6 +179,11 @@ export async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           'Account owners:',
           configRows.map((r: { account_id: string; user_id: string }) => `${r.account_id} (admin ${r.user_id})`)
         )
+        await recordDeadLetter(supabaseAdmin(), {
+          phoneNumberId,
+          value,
+          reason: 'multiple_configs',
+        })
         continue
       }
 
