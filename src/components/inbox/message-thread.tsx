@@ -921,7 +921,12 @@ export function MessageThread({
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {contact.phone ||
+                ((contact as { username?: string }).username
+                  ? `@${(contact as { username?: string }).username}`
+                  : "Sem número (username)")}
+            </p>
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}
