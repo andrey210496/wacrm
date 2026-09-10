@@ -66,6 +66,18 @@ interface WhatsAppMessage {
   button?: { text?: string; payload?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /**
+   * Presente quando a conversa começou por um anúncio Click-to-WhatsApp
+   * (Feature C). Abre a janela grátis de 72h e marca a origem do lead.
+   */
+  referral?: {
+    source_url?: string
+    source_type?: string
+    source_id?: string
+    headline?: string
+    body?: string
+    ctwa_clid?: string
+  }
 }
 
 export interface WhatsAppWebhookEntry {
@@ -90,7 +102,14 @@ export interface WhatsAppWebhookEntry {
         id: string
         status: string
         timestamp: string
-        recipient_id: string
+        recipient_id?: string
+        recipient_user_id?: string
+        pricing?: {
+          billable?: boolean
+          pricing_model?: string
+          category?: string
+          type?: string
+        }
       }>
     }
     field: string
@@ -274,16 +293,37 @@ async function handleStatusUpdate(status: {
   id: string
   status: string
   timestamp: string
-  recipient_id: string
+  recipient_id?: string
+  recipient_user_id?: string
+  // pricing (Feature C): a Meta manda a categoria + se é cobrável no status.
+  // É a FONTE DA VERDADE do que é cobrado (dentro/fora da janela, FEP 72h etc.).
+  pricing?: {
+    billable?: boolean
+    pricing_model?: string
+    category?: string
+    type?: string
+  }
 }) {
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status. No
   //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
   //    repeat across numbers), so this updates 0..N rows and must not
   //    assume a single row.
+  const msgUpdate: Record<string, unknown> = { status: status.status }
+  // Grava o pricing quando presente (Feature C: base do painel de consumo).
+  if (status.pricing) {
+    if (typeof status.pricing.category === 'string')
+      msgUpdate.pricing_category = status.pricing.category
+    if (typeof status.pricing.billable === 'boolean')
+      msgUpdate.pricing_billable = status.pricing.billable
+    if (typeof status.pricing.pricing_model === 'string')
+      msgUpdate.pricing_model = status.pricing.pricing_model
+    if (typeof status.pricing.type === 'string')
+      msgUpdate.pricing_type = status.pricing.type
+  }
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')
-    .update({ status: status.status })
+    .update(msgUpdate)
     .eq('message_id', status.id)
 
   if (msgErr) {
@@ -538,6 +578,26 @@ async function processMessage(
       conversation_id: conversation.id,
       contact_id: contactRecord.id,
     })
+  }
+
+  // Feature C: refresca a janela de atendimento de 24h (todo inbound do cliente)
+  // e, quando a conversa vem de um anúncio Click-to-WhatsApp, grava o referral
+  // (origem do lead + base da janela grátis de 72h). Best-effort — não bloqueia.
+  {
+    const convPatch: Record<string, unknown> = {
+      last_inbound_at: new Date().toISOString(),
+    }
+    if (message.referral) {
+      convPatch.referral = message.referral
+      convPatch.referral_at = new Date().toISOString()
+    }
+    const { error: convPatchErr } = await supabaseAdmin()
+      .from('conversations')
+      .update(convPatch)
+      .eq('id', conversation.id)
+    if (convPatchErr) {
+      console.error('[webhook] update janela/referral falhou (não-fatal):', convPatchErr.message)
+    }
   }
 
   // Reactions short-circuit here — they aren't messages. We never insert
