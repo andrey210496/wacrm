@@ -582,8 +582,10 @@ async function processMessage(
 
   // Feature C: refresca a janela de atendimento de 24h (todo inbound do cliente)
   // e, quando a conversa vem de um anúncio Click-to-WhatsApp, grava o referral
-  // (origem do lead + base da janela grátis de 72h). Best-effort — não bloqueia.
-  {
+  // (origem do lead + base da janela grátis de 72h). BEST-EFFORT: envolto em
+  // try/catch para NUNCA bloquear a persistência da mensagem — se essa
+  // atualização falhar, a mensagem ainda é gravada e o inbound não se perde.
+  try {
     const convPatch: Record<string, unknown> = {
       last_inbound_at: new Date().toISOString(),
     }
@@ -598,6 +600,8 @@ async function processMessage(
     if (convPatchErr) {
       console.error('[webhook] update janela/referral falhou (não-fatal):', convPatchErr.message)
     }
+  } catch (err) {
+    console.error('[webhook] update janela/referral lançou (não-fatal):', err)
   }
 
   // Reactions short-circuit here — they aren't messages. We never insert

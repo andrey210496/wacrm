@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DeadLetterAlert } from '@/components/settings/deadletter-alert';
+import { BillingPanel } from '@/components/settings/billing-panel';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -1149,6 +1150,9 @@ export function WhatsAppConfig() {
         </Card>
       </div>
     </div>
+
+    {/* Consumo por unidade + tarifas (Feature C, só admin — se esconde nos demais). */}
+    <BillingPanel />
     </section>
   );
 }
