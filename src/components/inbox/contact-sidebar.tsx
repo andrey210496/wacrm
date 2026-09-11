@@ -20,6 +20,10 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+// MESMO caminho de escrita que a tela de contato (grava em contact_tags e
+// dispara as automações de tag) — editar etiqueta na conversa fica consistente
+// em todo lugar, sem duplicar nem divergir.
+import { addContactTag, deleteContactTag } from "@/lib/contacts/tag-api";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -31,9 +35,14 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
+  const [copiedBsuid, setCopiedBsuid] = useState(false);
+  const bsuid = (contact as { bsuid?: string | null } | null)?.bsuid ?? null;
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [showTagPicker, setShowTagPicker] = useState(false);
+  const [savingTag, setSavingTag] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
 
@@ -42,8 +51,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    // Fetch deals, notes, tags (do contato) e todas as tags da conta em paralelo.
+    const [dealsRes, notesRes, tagsRes, allTagsRes] = await Promise.all([
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")
@@ -58,10 +67,12 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .from("contact_tags")
         .select("id, tag_id, tags(*)")
         .eq("contact_id", contact.id),
+      supabase.from("tags").select("*").order("name"),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
+    if (allTagsRes.data) setAllTags(allTagsRes.data as Tag[]);
     if (tagsRes.data) {
       const mapped = tagsRes.data
         .filter((ct: Record<string, unknown>) => ct.tags)
@@ -72,6 +83,60 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
       setTags(mapped);
     }
   }, [contact]);
+
+  // Re-lê só as etiquetas do contato (após add/remove) — a fonte é contact_tags,
+  // então a sidebar volta a bater com a tela de contato e a lista de conversas.
+  const refetchContactTags = useCallback(async () => {
+    if (!contact) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("contact_tags")
+      .select("id, tag_id, tags(*)")
+      .eq("contact_id", contact.id);
+    if (data) {
+      setTags(
+        data
+          .filter((ct: Record<string, unknown>) => ct.tags)
+          .map((ct: Record<string, unknown>) => ({
+            ...(ct.tags as Tag),
+            contact_tag_id: ct.id as string,
+          })),
+      );
+    }
+  }, [contact]);
+
+  const handleAddTag = useCallback(
+    async (tagId: string) => {
+      if (!contact) return;
+      setSavingTag(true);
+      try {
+        await addContactTag(contact.id, tagId);
+        await refetchContactTags();
+        setShowTagPicker(false);
+      } catch {
+        // silencioso — a etiqueta simplesmente não é adicionada
+      } finally {
+        setSavingTag(false);
+      }
+    },
+    [contact, refetchContactTags],
+  );
+
+  const handleRemoveTag = useCallback(
+    async (tagId: string) => {
+      if (!contact) return;
+      setSavingTag(true);
+      try {
+        await deleteContactTag(contact.id, tagId);
+        await refetchContactTags();
+      } catch {
+        // silencioso
+      } finally {
+        setSavingTag(false);
+      }
+    },
+    [contact, refetchContactTags],
+  );
 
   // Load on contact change. setContactData/setTags run inside async
   // Supabase callbacks, not synchronously in the effect body.
@@ -175,6 +240,28 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </button>
 
+            {/* BSUID (ID WhatsApp) — identidade da Meta por par usuário-empresa.
+                Aparece pra todos quando o contato tem um, útil como referência. */}
+            {bsuid && (
+              <button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(bsuid);
+                  setCopiedBsuid(true);
+                  setTimeout(() => setCopiedBsuid(false), 2000);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted"
+                title="ID WhatsApp (BSUID)"
+              >
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="flex-1 truncate text-left font-mono text-xs">{bsuid}</span>
+                {copiedBsuid ? (
+                  <Check className="h-3 w-3 text-primary" />
+                ) : (
+                  <Copy className="h-3 w-3 text-muted-foreground" />
+                )}
+              </button>
+            )}
+
             {contact.email && (
               <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground">
                 <Mail className="h-4 w-4 text-muted-foreground" />
@@ -192,23 +279,68 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               <TagIcon className="h-3 w-3" />
               {tSidebar("tags")}
             </div>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {tags.length === 0 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {tags.length === 0 && (
                 <p className="px-1 text-xs text-muted-foreground">{tSidebar("noTags")}</p>
-              ) : (
-                tags.map((tag) => (
-                  <span
-                    key={tag.contact_tag_id}
-                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                    style={{
-                      backgroundColor: `${tag.color}20`,
-                      color: tag.color,
-                    }}
-                  >
-                    {tag.name}
-                  </span>
-                ))
               )}
+              {tags.map((tag) => (
+                <span
+                  key={tag.contact_tag_id}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                  style={{ backgroundColor: `${tag.color}20`, color: tag.color }}
+                >
+                  {tag.name}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(tag.id)}
+                    disabled={savingTag}
+                    aria-label={`Remover etiqueta ${tag.name}`}
+                    className="ml-0.5 rounded-full leading-none opacity-70 hover:opacity-100"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+
+              {/* Adicionar etiqueta — mesma fonte (contact_tags) das outras telas. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowTagPicker((v) => !v)}
+                  disabled={savingTag || allTags.length === 0}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+                >
+                  <Plus className="h-3 w-3" />
+                  Etiqueta
+                </button>
+                {showTagPicker && (
+                  <div className="absolute z-10 mt-1 max-h-48 w-44 overflow-auto rounded-lg border border-border bg-card p-1 shadow-lg">
+                    {allTags.filter((t) => !tags.some((ct) => ct.id === t.id)).length === 0 ? (
+                      <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                        Todas já aplicadas
+                      </p>
+                    ) : (
+                      allTags
+                        .filter((t) => !tags.some((ct) => ct.id === t.id))
+                        .map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => handleAddTag(t.id)}
+                            disabled={savingTag}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] hover:bg-muted"
+                          >
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: t.color }}
+                            />
+                            <span className="truncate">{t.name}</span>
+                          </button>
+                        ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
