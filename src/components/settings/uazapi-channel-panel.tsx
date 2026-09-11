@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { parseApiResponse } from '@/lib/http/api-response';
 
@@ -40,6 +40,14 @@ export function UazapiChannelPanel() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Para o polling ao desmontar ou trocar de unidade.
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     createClient()
@@ -69,20 +77,59 @@ export function UazapiChannelPanel() {
 
   useEffect(() => {
     if (unitId) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       setQrcode(null);
       setMsg(null);
       loadStatus(unitId);
     }
   }, [unitId, loadStatus]);
 
+  // Polling de status INDEPENDENTE: o QR vem pelo /instance/status (padrão oficial
+  // da uazapi — o /instance/connect é long-poll e fica pendente até escanear). Roda
+  // sozinho, sem depender da resposta do POST /connect, que pode dar timeout/502.
+  const startQrPolling = useCallback((uid: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    let tries = 0;
+    let gotQr = false;
+    pollRef.current = setInterval(async () => {
+      tries++;
+      const cur = await fetch(`/api/whatsapp/uazapi/status?unitId=${encodeURIComponent(uid)}`)
+        .then((x) => parseApiResponse<{ status?: string; connected?: boolean; qrcode?: string }>(x))
+        .catch(() => null);
+      const data = cur?.ok ? cur.data ?? {} : {};
+      if (data.status) setStatus(data.status);
+      if (data.qrcode && !data.connected) {
+        gotQr = true;
+        setQrcode(data.qrcode);
+        setMsg('Escaneie o QR no WhatsApp do estúdio (Aparelhos conectados).');
+      }
+      if (data.connected || tries >= 40) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        if (data.connected) {
+          setQrcode(null);
+          setMsg('Canal conectado! ✅');
+        } else if (!gotQr) {
+          setMsg('Não foi possível gerar o QR. Clique em Conectar novamente.');
+        }
+      }
+    }, 3000);
+  }, []);
+
   const connect = async () => {
     if (!unitId) return;
     setBusy(true);
-    setMsg(null);
+    setMsg('Iniciando conexão…');
     setQrcode(null);
+    // O poll cuida do QR de forma independente — começa já.
+    startQrPolling(unitId);
     try {
-      // A 1ª conexão cria a instância uazapi (lento). Timeout generoso; se o proxy
-      // cortar antes, a instância já foi criada e o Reconectar completa rápido.
+      // Dispara o connect para INICIAR a conexão no servidor. A resposta é
+      // best-effort: se vier o QR na hora, mostra; se 502/timeout (long-poll),
+      // o polling de status cobre. Não bloqueia a UI nesse tempo todo.
       const r = await fetchWithTimeout(
         '/api/whatsapp/uazapi/connect',
         {
@@ -90,57 +137,24 @@ export function UazapiChannelPanel() {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ unitId }),
         },
-        25_000,
+        20_000,
       );
       const p = await parseApiResponse<{ status?: string; qrcode?: string }>(r);
-      if (!p.ok) {
-        setMsg(p.error);
-        return;
-      }
-      const d = p.data ?? {};
-      setStatus(d.status ?? 'connecting');
-      if (d.qrcode) {
-        setQrcode(d.qrcode);
-        setMsg('Escaneie o QR no WhatsApp do estúdio (Aparelhos conectados).');
-      } else if (d.status === 'connected') {
-        setMsg('Canal conectado! ✅');
-      } else {
-        setMsg('Gerando o QR… aguarde alguns segundos.');
-      }
-      // Poll de status por até ~2min: o QR pode levar alguns segundos e vem pelo
-      // status (a central devolve o qrcode enquanto `connecting`). Encerra ao
-      // conectar ou ao esgotar as tentativas.
-      let tries = 0;
-      let gotQr = !!d.qrcode;
-      const poll = setInterval(async () => {
-        tries++;
-        const cur = await fetch(`/api/whatsapp/uazapi/status?unitId=${encodeURIComponent(unitId)}`)
-          .then((x) => parseApiResponse<{ status?: string; connected?: boolean; qrcode?: string }>(x))
-          .catch(() => null);
-        const data = cur?.ok ? cur.data ?? {} : {};
-        if (data.status) setStatus(data.status);
-        if (data.qrcode) {
-          gotQr = true;
-          setQrcode(data.qrcode);
+      if (p.ok) {
+        const d = p.data ?? {};
+        if (d.status) setStatus(d.status);
+        if (d.qrcode) {
+          setQrcode(d.qrcode);
           setMsg('Escaneie o QR no WhatsApp do estúdio (Aparelhos conectados).');
+        } else if (d.status === 'connected') {
+          setMsg('Canal conectado! ✅');
+        } else {
+          setMsg('Gerando o QR… aguarde alguns segundos.');
         }
-        if (data.connected || tries >= 40) {
-          clearInterval(poll);
-          if (data.connected) {
-            setQrcode(null);
-            setMsg('Canal conectado! ✅');
-          } else if (!gotQr) {
-            setMsg('Não foi possível gerar o QR agora. Clique em Conectar novamente.');
-          }
-        }
-      }, 3000);
-    } catch (e) {
-      const aborted = e instanceof DOMException && e.name === 'AbortError';
-      setMsg(
-        aborted
-          ? 'A conexão demorou demais. A instância já pode ter sido criada — clique em Reconectar para concluir.'
-          : 'Falha de rede ao conectar. Verifique a conexão e tente novamente.',
-      );
+      }
+      // Se !p.ok (ex.: 502 do long-poll), não sobrescreve: o poll está buscando o QR.
+    } catch {
+      // Timeout/rede no POST: silencioso — o polling de status assume.
     } finally {
       setBusy(false);
     }
