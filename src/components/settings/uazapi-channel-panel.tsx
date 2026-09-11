@@ -2,6 +2,18 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { parseApiResponse } from '@/lib/http/api-response';
+
+/** fetch com timeout: um proxy pode segurar a conexão; sem isto o botão fica preso. */
+async function fetchWithTimeout(input: string, init: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 type Unit = { id: string; name: string };
 
@@ -69,16 +81,23 @@ export function UazapiChannelPanel() {
     setMsg(null);
     setQrcode(null);
     try {
-      const r = await fetch('/api/whatsapp/uazapi/connect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ unitId }),
-      });
-      const d = await r.json();
-      if (!r.ok) {
-        setMsg(d.error || 'Falha ao conectar.');
+      // A 1ª conexão cria a instância uazapi (lento). Timeout generoso; se o proxy
+      // cortar antes, a instância já foi criada e o Reconectar completa rápido.
+      const r = await fetchWithTimeout(
+        '/api/whatsapp/uazapi/connect',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ unitId }),
+        },
+        45_000,
+      );
+      const p = await parseApiResponse<{ status?: string; qrcode?: string }>(r);
+      if (!p.ok) {
+        setMsg(p.error);
         return;
       }
+      const d = p.data ?? {};
       setStatus(d.status ?? 'connecting');
       if (d.qrcode) {
         setQrcode(d.qrcode);
@@ -102,8 +121,13 @@ export function UazapiChannelPanel() {
           }
         }
       }, 3000);
-    } catch {
-      setMsg('Erro de rede ao conectar.');
+    } catch (e) {
+      const aborted = e instanceof DOMException && e.name === 'AbortError';
+      setMsg(
+        aborted
+          ? 'A conexão demorou demais. A instância já pode ter sido criada — clique em Reconectar para concluir.'
+          : 'Falha de rede ao conectar. Verifique a conexão e tente novamente.',
+      );
     } finally {
       setBusy(false);
     }
@@ -114,17 +138,24 @@ export function UazapiChannelPanel() {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await fetch('/api/whatsapp/uazapi/control', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ unitId, action }),
-      });
-      const d = await r.json();
-      if (!r.ok) setMsg(d.error || 'Falha.');
+      const r = await fetchWithTimeout(
+        '/api/whatsapp/uazapi/control',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ unitId, action }),
+        },
+        30_000,
+      );
+      const p = await parseApiResponse(r);
+      if (!p.ok) setMsg(p.error);
       else {
         setMsg(action === 'disconnect' ? 'Desconectado.' : 'Reconectando…');
         loadStatus(unitId);
       }
+    } catch (e) {
+      const aborted = e instanceof DOMException && e.name === 'AbortError';
+      setMsg(aborted ? 'A operação demorou demais. Tente novamente.' : 'Falha de rede. Tente novamente.');
     } finally {
       setBusy(false);
     }

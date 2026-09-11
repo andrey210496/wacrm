@@ -18,11 +18,15 @@ export async function POST(request: Request) {
   }
   const unitId = String(body.unitId ?? "").trim();
   if (!unitId) return NextResponse.json({ error: "unitId é obrigatório" }, { status: 400 });
+  const t0 = Date.now();
   try {
     const r = await connectUazapi(unitId);
+    console.info(`[uazapi/connect] ok unit=${unitId} status=${r.status ?? "?"} qr=${r.qrcode ? "sim" : "não"} ${Date.now() - t0}ms`);
     return NextResponse.json({ ok: true, ...r });
   } catch (err) {
     const message = err instanceof Error ? err.message : "erro desconhecido";
+    // Log com duração: distingue "demorou/timeout" de "falhou rápido" no diagnóstico.
+    console.error(`[uazapi/connect] falhou unit=${unitId} ${Date.now() - t0}ms: ${message}`);
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }
