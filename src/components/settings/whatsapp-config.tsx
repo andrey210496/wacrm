@@ -26,6 +26,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DeadLetterAlert } from '@/components/settings/deadletter-alert';
 import { BillingPanel } from '@/components/settings/billing-panel';
 import { UazapiChannelPanel } from '@/components/settings/uazapi-channel-panel';
+import { ConexaoRedezapPanel } from '@/components/settings/conexao-redezap-panel';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -1157,6 +1158,8 @@ export function WhatsAppConfig() {
 
     {/* Canal RedeZap (uazapi) por unidade — self-service (só admin). */}
     <UazapiChannelPanel />
+    {/* Conexão redezap (híbrido por custo) por unidade — só admin. */}
+    <ConexaoRedezapPanel />
     </section>
   );
 }
