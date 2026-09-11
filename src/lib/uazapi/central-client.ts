@@ -78,6 +78,32 @@ export async function statusUazapi(
   };
 }
 
+/** Parseia o resultado do envio (puro/testável). */
+export function parseSendResult(body: Record<string, unknown>): { messageId?: string } {
+  return { messageId: typeof body.messageId === "string" ? body.messageId : undefined };
+}
+
+/** Envia uma mensagem (texto/mídia) pela conexão uazapi da unidade, via central. */
+export async function sendUazapi(
+  unitLabel: string,
+  payload: {
+    to: string;
+    type: "text" | "media";
+    text?: string;
+    mediaKind?: "image" | "video" | "audio" | "document";
+    mediaUrl?: string;
+    filename?: string;
+  },
+): Promise<{ messageId?: string }> {
+  const res = await centralFetch("/api/instances/uazapi/send", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ unitLabel, ...payload }),
+  });
+  const body = await readJson(res, "enviar");
+  return parseSendResult(body);
+}
+
 /** Desconecta (logout) ou reinicia (reconexão) o canal. */
 export async function controlUazapi(
   unitLabel: string,

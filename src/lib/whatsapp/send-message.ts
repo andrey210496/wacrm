@@ -48,6 +48,12 @@ import {
   templateBodyParams,
   templateContentText,
 } from '@/lib/whatsapp/template-body';
+import {
+  chooseChannel,
+  type ChannelOverride,
+} from '@/lib/whatsapp/outbound-router';
+import { getHybridConfig, nextInterleaveCounter } from '@/lib/channels/hybrid-config';
+import { sendUazapi } from '@/lib/uazapi/central-client';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -88,6 +94,12 @@ export interface SendMessageParams {
   /** Structured payload for `messageType === 'interactive'`. */
   interactivePayload?: InteractiveMessagePayload | null;
   replyToMessageId?: string | null;
+  /**
+   * Canal de saída (Frente 2). 'auto' (default) deixa o roteador decidir pelo
+   * híbrido "Conexão redezap"; 'official'/'uazapi' forçam (override por
+   * envio/automação).
+   */
+  channelOverride?: ChannelOverride;
 }
 
 export interface SendMessageResult {
@@ -201,6 +213,7 @@ export async function sendMessageToConversation(
     templateMessageParams,
     interactivePayload,
     replyToMessageId,
+    channelOverride,
   } = params;
 
   if (!conversationId) {
@@ -427,10 +440,76 @@ export async function sendMessageToConversation(
     return result.messageId;
   };
 
-  // Send via Meta — retry across phone-number variants if Meta rejects
-  // with "recipient not in allowed list"; persist a working variant
-  // back to the contact so the next send goes straight through.
+  // ---- Roteamento de canal (Frente 2 — "Conexão redezap") ----
+  // Uma % das mensagens COBRÁVEIS e elegíveis vai pela uazapi (R$0 Meta). A
+  // decisão é pura; o fail-safe é aqui: se a uazapi falhar, cai pro oficial.
+  let channelUsed: 'official' | 'uazapi' = 'official';
   let waMessageId = '';
+  {
+    const cfg = await getHybridConfig(conversation.unit_id);
+    const windowOpen = conversation.last_inbound_at
+      ? Date.now() - new Date(conversation.last_inbound_at).getTime() < 24 * 3600 * 1000
+      : false;
+    const routeArgs = {
+      hybridEnabled: cfg.hybridEnabled,
+      uazapiPct: cfg.uazapiPct,
+      billableMode: cfg.billableMode,
+      messageType,
+      windowOpen,
+      now: new Date(),
+      hasPhone: !!sanitizedPhone,
+      override: channelOverride ?? 'auto',
+    } as const;
+    let decided = chooseChannel({ ...routeArgs, counter: 0 });
+    if (decided.consumeCounter) {
+      const counter = await nextInterleaveCounter(conversation.unit_id);
+      decided = chooseChannel({ ...routeArgs, counter });
+    }
+    if (decided.channel === 'uazapi' && sanitizedPhone) {
+      try {
+        if (isMediaKind) {
+          const r = await sendUazapi(conversation.unit_id, {
+            to: sanitizedPhone,
+            type: 'media',
+            mediaKind: messageType as 'image' | 'video' | 'audio' | 'document',
+            mediaUrl: mediaUrl!,
+            text: contentText ?? undefined,
+            filename: filename ?? undefined,
+          });
+          waMessageId = r.messageId ?? `uz_${Date.now()}`;
+        } else {
+          const text =
+            messageType === 'template'
+              ? templateContentText(
+                  templateRow,
+                  templateBodyParams(templateParams, templateMessageParams),
+                  contentText
+                ) ??
+                contentText ??
+                ''
+              : contentText ?? '';
+          const r = await sendUazapi(conversation.unit_id, {
+            to: sanitizedPhone,
+            type: 'text',
+            text,
+          });
+          waMessageId = r.messageId ?? `uz_${Date.now()}`;
+        }
+        channelUsed = 'uazapi';
+      } catch (err) {
+        console.warn(
+          '[send-message] uazapi falhou, fail-safe pro oficial:',
+          err instanceof Error ? err.message : err
+        );
+        channelUsed = 'official';
+      }
+    }
+  }
+
+  // Send via Meta (só quando o canal é oficial, incluindo o fail-safe da uazapi)
+  // — retry across phone-number variants if Meta rejects with "recipient not in
+  // allowed list"; persist a working variant back to the contact.
+  if (channelUsed === 'official') {
   if (sanitizedPhone) {
     // Fluxo por TELEFONE — retry entre variantes + auto-correção do número.
     let workingPhone = sanitizedPhone;
@@ -484,6 +563,7 @@ export async function sendMessageToConversation(
       throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
     }
   }
+  } // fim do gate channelUsed === 'official'
 
   // Persist the sent message. Field names MUST match the messages
   // schema (see 001_initial_schema.sql).
@@ -520,6 +600,7 @@ export async function sendMessageToConversation(
       message_id: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,
+      channel: channelUsed,
     })
     .select()
     .single();
