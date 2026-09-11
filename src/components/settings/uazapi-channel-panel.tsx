@@ -90,7 +90,7 @@ export function UazapiChannelPanel() {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ unitId }),
         },
-        45_000,
+        25_000,
       );
       const p = await parseApiResponse<{ status?: string; qrcode?: string }>(r);
       if (!p.ok) {
@@ -102,22 +102,35 @@ export function UazapiChannelPanel() {
       if (d.qrcode) {
         setQrcode(d.qrcode);
         setMsg('Escaneie o QR no WhatsApp do estúdio (Aparelhos conectados).');
+      } else if (d.status === 'connected') {
+        setMsg('Canal conectado! ✅');
       } else {
-        setMsg('Conectado (sem QR — já estava pareado).');
+        setMsg('Gerando o QR… aguarde alguns segundos.');
       }
-      // Poll de status por até ~60s.
+      // Poll de status por até ~2min: o QR pode levar alguns segundos e vem pelo
+      // status (a central devolve o qrcode enquanto `connecting`). Encerra ao
+      // conectar ou ao esgotar as tentativas.
       let tries = 0;
+      let gotQr = !!d.qrcode;
       const poll = setInterval(async () => {
         tries++;
-        await loadStatus(unitId);
         const cur = await fetch(`/api/whatsapp/uazapi/status?unitId=${encodeURIComponent(unitId)}`)
-          .then((x) => x.json())
-          .catch(() => ({}));
-        if (cur.connected || tries >= 20) {
+          .then((x) => parseApiResponse<{ status?: string; connected?: boolean; qrcode?: string }>(x))
+          .catch(() => null);
+        const data = cur?.ok ? cur.data ?? {} : {};
+        if (data.status) setStatus(data.status);
+        if (data.qrcode) {
+          gotQr = true;
+          setQrcode(data.qrcode);
+          setMsg('Escaneie o QR no WhatsApp do estúdio (Aparelhos conectados).');
+        }
+        if (data.connected || tries >= 40) {
           clearInterval(poll);
-          if (cur.connected) {
+          if (data.connected) {
             setQrcode(null);
             setMsg('Canal conectado! ✅');
+          } else if (!gotQr) {
+            setMsg('Não foi possível gerar o QR agora. Clique em Conectar novamente.');
           }
         }
       }, 3000);

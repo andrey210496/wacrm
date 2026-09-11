@@ -62,10 +62,10 @@ export async function connectUazapi(
   };
 }
 
-/** Status do canal uazapi da unidade. */
+/** Status do canal uazapi da unidade (traz o QR enquanto conectando). */
 export async function statusUazapi(
   unitLabel: string,
-): Promise<{ status: string; connected: boolean }> {
+): Promise<{ status: string; connected: boolean; qrcode?: string }> {
   const res = await centralFetch(
     `/api/instances/uazapi/status?unitLabel=${encodeURIComponent(unitLabel)}`,
     { method: "GET" },
@@ -74,6 +74,7 @@ export async function statusUazapi(
   return {
     status: typeof body.status === "string" ? body.status : "unknown",
     connected: body.connected === true,
+    qrcode: typeof body.qrcode === "string" ? body.qrcode : undefined,
   };
 }
 
