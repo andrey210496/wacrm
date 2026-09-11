@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DeadLetterAlert } from '@/components/settings/deadletter-alert';
 import { BillingPanel } from '@/components/settings/billing-panel';
+import { UazapiChannelPanel } from '@/components/settings/uazapi-channel-panel';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -1153,6 +1154,9 @@ export function WhatsAppConfig() {
 
     {/* Consumo por unidade + tarifas (Feature C, só admin — se esconde nos demais). */}
     <BillingPanel />
+
+    {/* Canal RedeZap (uazapi) por unidade — self-service (só admin). */}
+    <UazapiChannelPanel />
     </section>
   );
 }
