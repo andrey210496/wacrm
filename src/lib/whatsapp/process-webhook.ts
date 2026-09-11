@@ -879,6 +879,169 @@ async function processMessage(
   })
 }
 
+/**
+ * Ingestão de inbound JÁ NORMALIZADO, roteado por UNIDADE (não por
+ * phone_number_id). Usado pelo canal uazapi, cuja mensagem não tem
+ * phone_number_id — a unidade vem do webhook. Reusa os MESMOS helpers do caminho
+ * oficial (findOrCreateContact/Conversation, bump de unread, reopen, flows,
+ * automações, IA, webhook público), então a mensagem cai no inbox e dispara tudo
+ * igual. NÃO toca no `processMessage` oficial (o fluxo Meta segue idêntico).
+ *
+ * Mídia: a uazapi entrega URL direta (`mediaUrl`) — não há fetch da Meta aqui.
+ */
+export async function ingestNormalizedInbound(params: {
+  accountId: string
+  unitId: string
+  configOwnerUserId: string
+  identity: InboundIdentity
+  content: {
+    type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'unknown'
+    text: string
+    mediaUrl: string | null
+  }
+  messageId: string
+  timestamp: number | null
+}): Promise<void> {
+  const { accountId, unitId, configOwnerUserId, identity, content, messageId } = params
+
+  if (!identity.phone && !identity.bsuid) {
+    console.error('[uazapi] inbound sem telefone e sem identidade — ignorado')
+    return
+  }
+
+  const contactOutcome = await findOrCreateContact(
+    accountId,
+    unitId,
+    configOwnerUserId,
+    identity,
+  )
+  if (!contactOutcome) return
+  const contactRecord = contactOutcome.contact
+
+  const convResult = await findOrCreateConversation(
+    accountId,
+    unitId,
+    configOwnerUserId,
+    contactRecord.id,
+  )
+  if (!convResult) return
+  const conversation = convResult.conversation
+  if (convResult.created) {
+    await dispatchWebhookEvent(supabaseAdmin(), accountId, 'conversation.created', {
+      conversation_id: conversation.id,
+      contact_id: contactRecord.id,
+    })
+  }
+
+  // Janela de 24h (Feature C) — best-effort, nunca bloqueia.
+  try {
+    await supabaseAdmin()
+      .from('conversations')
+      .update({ last_inbound_at: new Date().toISOString() })
+      .eq('id', conversation.id)
+  } catch (err) {
+    console.error('[uazapi] update janela falhou (não-fatal):', err)
+  }
+
+  const ALLOWED = new Set(['text', 'image', 'document', 'audio', 'video'])
+  const contentType = ALLOWED.has(content.type) ? content.type : 'text'
+
+  const { count: prior } = await supabaseAdmin()
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversation.id)
+    .eq('sender_type', 'customer')
+  const isFirstInboundMessage = (prior ?? 0) === 0
+
+  const createdAt =
+    params.timestamp && params.timestamp > 0
+      ? new Date(params.timestamp * 1000).toISOString()
+      : new Date().toISOString()
+
+  // Idempotente por (conversation_id, message_id) — igual ao oficial.
+  const { data: inserted, error: msgError } = await supabaseAdmin()
+    .from('messages')
+    .upsert(
+      {
+        conversation_id: conversation.id,
+        sender_type: 'customer',
+        content_type: contentType,
+        content_text: content.text,
+        media_url: content.mediaUrl,
+        media_type: null,
+        message_id: messageId,
+        status: 'delivered',
+        created_at: createdAt,
+      },
+      { onConflict: 'conversation_id,message_id', ignoreDuplicates: true },
+    )
+    .select('id')
+
+  if (msgError) {
+    console.error('[uazapi] erro ao inserir mensagem:', msgError)
+    return
+  }
+  if (!inserted || inserted.length === 0) {
+    // Replay idempotente — não re-dispara nada.
+    return
+  }
+
+  const { error: convErr } = await supabaseAdmin().rpc('bump_conversation_on_inbound', {
+    p_conversation_id: conversation.id,
+    p_last_message_text: content.text || `[${content.type}]`,
+  })
+  if (convErr) console.error('[uazapi] erro ao atualizar conversa:', convErr)
+
+  await reopenClosedConversation(supabaseAdmin(), conversation)
+
+  const inboundText = content.text ?? ''
+
+  const flowResult = await dispatchInboundToFlows({
+    accountId,
+    userId: configOwnerUserId,
+    contactId: contactRecord.id,
+    conversationId: conversation.id,
+    message: { kind: 'text', text: inboundText, meta_message_id: messageId },
+    isFirstInboundMessage,
+  })
+  const flowConsumed = flowResult.consumed
+
+  const triggers: (
+    | 'new_contact_created'
+    | 'first_inbound_message'
+    | 'new_message_received'
+    | 'keyword_match'
+  )[] = []
+  if (!flowConsumed) triggers.push('new_message_received', 'keyword_match')
+  if (contactOutcome.wasCreated) triggers.unshift('new_contact_created')
+  if (isFirstInboundMessage) triggers.unshift('first_inbound_message')
+  for (const triggerType of triggers) {
+    await runAutomationsForTrigger({
+      accountId,
+      triggerType,
+      contactId: contactRecord.id,
+      context: { message_text: inboundText, conversation_id: conversation.id },
+    }).catch((err) => console.error('[automations] dispatch failed:', err))
+  }
+
+  if (!flowConsumed && inboundText.trim()) {
+    await dispatchInboundToAiReply({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      configOwnerUserId,
+    })
+  }
+
+  await dispatchWebhookEvent(supabaseAdmin(), accountId, 'message.received', {
+    conversation_id: conversation.id,
+    contact_id: contactRecord.id,
+    whatsapp_message_id: messageId,
+    content_type: contentType,
+    text: content.text,
+  })
+}
+
 async function parseMessageContent(
   message: WhatsAppMessage,
   accessToken: string,
