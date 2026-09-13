@@ -46,6 +46,7 @@ export function AgendaPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [remStatus, setRemStatus] = useState<Record<string, { state: string; error?: string | null }>>({});
   const [loading, setLoading] = useState(true);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -92,8 +93,22 @@ export function AgendaPage() {
       .gte("starts_at", dayStart.toISOString())
       .lt("starts_at", dayEnd.toISOString())
       .order("starts_at");
-    setAppointments((data ?? []) as Appointment[]);
+    const list = (data ?? []) as Appointment[];
+    setAppointments(list);
     setLoading(false);
+    // Status dos lembretes (selo no card) — via rota (a tabela é RLS deny-all).
+    if (list.length > 0) {
+      fetch("/api/appointments/reminder-status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: list.map((a) => a.id) }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setRemStatus(d?.statuses ?? {}))
+        .catch(() => setRemStatus({}));
+    } else {
+      setRemStatus({});
+    }
   }, [supabase, unitId, date]);
 
   useEffect(() => {
@@ -227,7 +242,7 @@ export function AgendaPage() {
                 <div className="space-y-2 p-2">
                   {items.length === 0 && <p className="px-1 py-6 text-center text-xs text-muted-foreground">Sem agendamentos</p>}
                   {items.map((a) => (
-                    <AppointmentCard key={a.id} a={a} onStatus={setStatus} canBook={canBook} />
+                    <AppointmentCard key={a.id} a={a} onStatus={setStatus} canBook={canBook} rem={remStatus[a.id]} />
                   ))}
                 </div>
               </div>
@@ -258,14 +273,31 @@ export function AgendaPage() {
   );
 }
 
+function ReminderBadge({ rem }: { rem?: { state: string; error?: string | null } }) {
+  if (!rem) return null;
+  if (rem.state === "sent") {
+    return <span className="text-[10px] text-emerald-500" title="Lembrete enviado">🔔 lembrete enviado</span>;
+  }
+  if (rem.state === "failed") {
+    return (
+      <span className="text-[10px] text-red-500" title={rem.error ? `Falha: ${rem.error}` : "Lembrete falhou"}>
+        ⚠️ lembrete falhou
+      </span>
+    );
+  }
+  return <span className="text-[10px] text-muted-foreground" title="Enviando…">🔔 enviando…</span>;
+}
+
 function AppointmentCard({
   a,
   onStatus,
   canBook,
+  rem,
 }: {
   a: Appointment;
   onStatus: (id: string, s: AppointmentStatus) => void;
   canBook: boolean;
+  rem?: { state: string; error?: string | null };
 }) {
   const time = new Date(a.starts_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   return (
@@ -281,6 +313,11 @@ function AppointmentCard({
         <span className="truncate">{a.service?.name ?? "Serviço"}</span>
       </div>
       <div className="truncate text-xs text-muted-foreground">{a.contact?.name || a.contact?.phone || "Cliente"}</div>
+      {rem && (
+        <div className="mt-1">
+          <ReminderBadge rem={rem} />
+        </div>
+      )}
       {canBook && a.status !== "canceled" && a.status !== "completed" && (
         <div className="mt-2">
           <select

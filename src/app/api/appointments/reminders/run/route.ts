@@ -81,15 +81,23 @@ export async function POST(request: Request) {
     const rows = (appts ?? []) as unknown as ApptRow[];
     if (rows.length === 0) continue;
 
-    const { data: sentRows } = await admin
+    const { data: logRows } = await admin
       .from("appointment_reminders_sent")
-      .select("appointment_id, offset_min")
+      .select("id, appointment_id, offset_min, status")
       .in("appointment_id", rows.map((r) => r.id));
+    // sentMap = offsets JÁ ENVIADOS (status='sent') → não reenvia. rowMap = linha
+    // existente por (appt,offset) para reivindicar retry de falhas.
     const sentMap = new Map<string, number[]>();
-    for (const s of (sentRows ?? []) as { appointment_id: string; offset_min: number }[]) {
-      const arr = sentMap.get(s.appointment_id) ?? [];
-      arr.push(s.offset_min);
-      sentMap.set(s.appointment_id, arr);
+    const rowMap = new Map<string, Map<number, { id: string; status: string }>>();
+    for (const s of (logRows ?? []) as { id: string; appointment_id: string; offset_min: number; status: string }[]) {
+      if (s.status === "sent") {
+        const arr = sentMap.get(s.appointment_id) ?? [];
+        arr.push(s.offset_min);
+        sentMap.set(s.appointment_id, arr);
+      }
+      const m = rowMap.get(s.appointment_id) ?? new Map();
+      m.set(s.offset_min, { id: s.id, status: s.status });
+      rowMap.set(s.appointment_id, m);
     }
 
     for (const appt of rows) {
@@ -110,20 +118,41 @@ export async function POST(request: Request) {
       });
 
       for (const off of due) {
-        // 1) REIVINDICA o slot ANTES de enviar. A UNIQUE(appointment_id,offset_min)
-        //    garante que só UM run consegue — mesmo com crons sobrepostos, ninguém
-        //    envia duas vezes. 23505 = outro run já pegou → não reenvia.
-        const { error: claimErr } = await admin
-          .from("appointment_reminders_sent")
-          .insert({ appointment_id: appt.id, offset_min: off, channel: cfg.reminder_channel });
-        if (claimErr) {
-          if (claimErr.code !== "23505") {
-            errors++;
-            console.warn(`[reminders] claim falhou appt=${appt.id} off=${off}: ${claimErr.message}`);
+        // 1) REIVINDICA (status 'pending') ANTES de enviar. Novo offset → INSERT
+        //    (a UNIQUE trava corrida entre crons). Offset que falhou antes →
+        //    reivindica com UPDATE otimístico (só pega se o status ainda é o que
+        //    a gente leu). Assim ninguém envia em dobro, e falha registrada é
+        //    RE-TENTADA (não fica invisível). status='sent' nunca chega aqui.
+        const existing = rowMap.get(appt.id)?.get(off);
+        let rowId: string;
+        if (!existing) {
+          const { data, error: claimErr } = await admin
+            .from("appointment_reminders_sent")
+            .insert({ appointment_id: appt.id, offset_min: off, channel: cfg.reminder_channel, status: "pending" })
+            .select("id")
+            .single();
+          if (claimErr || !data) {
+            if (claimErr && claimErr.code !== "23505") {
+              errors++;
+              console.warn(`[reminders] claim falhou appt=${appt.id} off=${off}: ${claimErr.message}`);
+            }
+            continue; // 23505 = outro run pegou
           }
-          continue;
+          rowId = data.id;
+        } else {
+          const { data } = await admin
+            .from("appointment_reminders_sent")
+            .update({ status: "pending", updated_at: new Date().toISOString() })
+            .eq("id", existing.id)
+            .eq("status", existing.status) // trava otimística
+            .select("id");
+          if (!data || data.length === 0) continue; // outro run reivindicou
+          rowId = existing.id;
         }
-        // 2) Envia. Se falhar, LIBERA o claim (delete) para tentar no próximo cron.
+
+        // 2) Envia. Marca 'sent' no sucesso; 'failed' + motivo na falha (visível
+        //    ao atendente na agenda). Falha continua sendo re-tentada no próximo
+        //    cron (o offset segue "due" enquanto não for 'sent').
         try {
           const { conversationId } = await resolveConversationByPhone(admin, cfg.account_id, phone, appt.contact?.name ?? null);
           await sendMessageToConversation(admin, cfg.account_id, {
@@ -132,11 +161,19 @@ export async function POST(request: Request) {
             contentText: text,
             channelOverride: cfg.reminder_channel,
           });
+          await admin
+            .from("appointment_reminders_sent")
+            .update({ status: "sent", error: null, sent_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq("id", rowId);
           sent++;
         } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
           errors++;
-          console.warn(`[reminders] envio falhou appt=${appt.id} off=${off}:`, e instanceof Error ? e.message : e);
-          await admin.from("appointment_reminders_sent").delete().eq("appointment_id", appt.id).eq("offset_min", off);
+          console.warn(`[reminders] envio falhou appt=${appt.id} off=${off}: ${msg}`);
+          await admin
+            .from("appointment_reminders_sent")
+            .update({ status: "failed", error: msg.slice(0, 300), updated_at: new Date().toISOString() })
+            .eq("id", rowId);
         }
       }
     }
