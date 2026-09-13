@@ -97,6 +97,20 @@ export async function POST(request: Request) {
       });
 
       for (const off of due) {
+        // 1) REIVINDICA o slot ANTES de enviar. A UNIQUE(appointment_id,offset_min)
+        //    garante que só UM run consegue — mesmo com crons sobrepostos, ninguém
+        //    envia duas vezes. 23505 = outro run já pegou → não reenvia.
+        const { error: claimErr } = await admin
+          .from("appointment_reminders_sent")
+          .insert({ appointment_id: appt.id, offset_min: off, channel: cfg.reminder_channel });
+        if (claimErr) {
+          if (claimErr.code !== "23505") {
+            errors++;
+            console.warn(`[reminders] claim falhou appt=${appt.id} off=${off}: ${claimErr.message}`);
+          }
+          continue;
+        }
+        // 2) Envia. Se falhar, LIBERA o claim (delete) para tentar no próximo cron.
         try {
           const { conversationId } = await resolveConversationByPhone(admin, cfg.account_id, phone, appt.contact?.name ?? null);
           await sendMessageToConversation(admin, cfg.account_id, {
@@ -105,15 +119,11 @@ export async function POST(request: Request) {
             contentText: text,
             channelOverride: cfg.reminder_channel,
           });
-          const { error: logErr } = await admin
-            .from("appointment_reminders_sent")
-            .insert({ appointment_id: appt.id, offset_min: off, channel: cfg.reminder_channel });
-          // 23505 (unique) = corrida, já enviado → ok.
-          if (logErr && logErr.code !== "23505") throw new Error(logErr.message);
           sent++;
         } catch (e) {
           errors++;
-          console.warn(`[reminders] falha appt=${appt.id} off=${off}:`, e instanceof Error ? e.message : e);
+          console.warn(`[reminders] envio falhou appt=${appt.id} off=${off}:`, e instanceof Error ? e.message : e);
+          await admin.from("appointment_reminders_sent").delete().eq("appointment_id", appt.id).eq("offset_min", off);
         }
       }
     }
