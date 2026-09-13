@@ -10,7 +10,7 @@ lembrete** (B.1), **autoagendamento público** (C) e o **cron orquestrado pela c
 
 | Repo | Serviço EasyPanel | Branch/commit alvo |
 |---|---|---|
-| `wacrm` (instância) | `redezap-purepilates` | `feature/usa-i-multiunidade-sp1` → **`99b048a`** |
+| `wacrm` (instância) | `redezap-purepilates` | `feature/usa-i-multiunidade-sp1` → **`7b6a738`** |
 | `gestao-usai` (central) | `gestao-usai` | `master` → **`e3c7b7d`** |
 
 Regras de sempre: **Zero Downtime OFF** no VPS de 3,6 GB; conferir no log de build que subiu o **commit certo**.
@@ -22,7 +22,7 @@ Aplique **antes** do redeploy da instância. As migrations vivem em
 Supabase da instância (projeto `ddeoyffpquscojiqjbyf`) e cole o **bundle**:
 
 ```
-deploy/deploy-frentes-2-5_052-056.sql
+deploy/deploy-frentes-2-5_052-058.sql
 ```
 
 Ele contém, em ordem (aditivas/idempotentes — rodar de novo não quebra):
@@ -34,6 +34,10 @@ Ele contém, em ordem (aditivas/idempotentes — rodar de novo não quebra):
 | `054_scheduling_reminders` | `scheduling_config` (lembretes/canal/texto/keywords/funil) + `appointment_reminders_sent` |
 | `055_public_booking` | colunas de autoagendamento em `scheduling_config` (slug, lead-time, janela) |
 | `056_reminder_status` | `appointment_reminders_sent`: `status`/`error`/`updated_at` (selo no card) |
+| `057_reminders_per_message` | `scheduling_config.reminders` JSONB (mensagem por lembrete) |
+| `058_catalog_agent_write` | RLS de escrita do catálogo baixa de admin→agent (atendente cria serviço/recurso/horário) |
+
+> O bundle antigo `deploy-frentes-2-5_052-056.sql` continua no repo, mas use o **052-058** (mais completo). Rodar o 052-058 por cima de um banco que já tem 052-056 é seguro (idempotente).
 
 **Validar:** o SQL Editor deve rodar sem erro. Confirme que as tabelas existem:
 ```sql
