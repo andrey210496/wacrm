@@ -19,6 +19,11 @@ export type SchedulingConfig = {
   stage_confirmed: string | null;
   stage_completed: string | null;
   stage_no_show: string | null;
+  // Fase C — autoagendamento público
+  public_booking_enabled: boolean;
+  public_slug: string | null;
+  public_lead_time_min: number;
+  public_window_days: number;
 };
 
 /** Lê a config da unidade (null se não existe). Fail-safe → null. */

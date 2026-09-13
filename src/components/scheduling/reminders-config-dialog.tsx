@@ -23,6 +23,10 @@ type Cfg = {
   stage_confirmed: string | null;
   stage_completed: string | null;
   stage_no_show: string | null;
+  public_booking_enabled: boolean;
+  public_slug: string | null;
+  public_lead_time_min: number;
+  public_window_days: number;
 };
 
 type Props = { open: boolean; onOpenChange: (v: boolean) => void; unitId: string };
@@ -170,6 +174,60 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
                 <StageSelect label="Ao confirmar →" k="stage_confirmed" />
                 <StageSelect label="Ao concluir →" k="stage_completed" />
                 <StageSelect label="Ao faltar →" k="stage_no_show" />
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={cfg.public_booking_enabled}
+                  onChange={(e) => set("public_booking_enabled", e.target.checked)}
+                />
+                Autoagendamento público (link para o cliente marcar sozinho)
+              </label>
+              <div className={cfg.public_booking_enabled ? "space-y-2" : "space-y-2 pointer-events-none opacity-50"}>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-muted-foreground text-xs">Antecedência mínima (min)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={cfg.public_lead_time_min}
+                      onChange={(e) => set("public_lead_time_min", Number(e.target.value))}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground text-xs">Janela (dias à frente)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={cfg.public_window_days}
+                      onChange={(e) => set("public_window_days", Number(e.target.value))}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                {cfg.public_slug ? (
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-2">
+                    <code className="flex-1 truncate text-xs text-foreground">
+                      {typeof window !== "undefined" ? window.location.origin : ""}/agendar/{cfg.public_slug}
+                    </code>
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(`${window.location.origin}/agendar/${cfg.public_slug}`);
+                        toast.success("Link copiado.");
+                      }}
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">O link é gerado ao salvar com o autoagendamento ligado.</p>
+                )}
               </div>
             </div>
 

@@ -1,6 +1,7 @@
 // GET/POST /api/scheduling/config — config de lembretes + funil por unidade.
 // Sessão ADMIN+.
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { getSchedulingConfig, saveSchedulingConfig, type SchedulingConfig } from "@/lib/scheduling/config";
 
@@ -19,6 +20,10 @@ function defaults(unitId: string, accountId: string): SchedulingConfig {
     stage_confirmed: null,
     stage_completed: null,
     stage_no_show: null,
+    public_booking_enabled: false,
+    public_slug: null,
+    public_lead_time_min: 120,
+    public_window_days: 30,
   };
 }
 
@@ -52,10 +57,21 @@ export async function POST(request: Request) {
   if (!unitId) return NextResponse.json({ error: "unitId é obrigatório" }, { status: 400 });
 
   const channel = body.reminder_channel;
+  // Gera o slug público ao LIGAR o autoagendamento (se ainda não tiver um).
+  const publicEnabled = body.public_booking_enabled === true;
+  let publicSlug: string | null = null;
+  if (publicEnabled) {
+    const current = await getSchedulingConfig(unitId);
+    publicSlug = current?.public_slug ?? crypto.randomBytes(9).toString("base64url");
+  }
   try {
     await saveSchedulingConfig({
       unit_id: unitId,
       account_id: ctx.accountId,
+      public_booking_enabled: publicEnabled,
+      public_slug: publicSlug,
+      public_lead_time_min: Math.max(0, Math.round(Number(body.public_lead_time_min ?? 120))),
+      public_window_days: Math.max(1, Math.round(Number(body.public_window_days ?? 30))),
       reminders_enabled: body.reminders_enabled === true,
       reminder_offsets_min: Array.isArray(body.reminder_offsets_min)
         ? (body.reminder_offsets_min as unknown[]).map((n) => Math.max(1, Math.round(Number(n)))).filter((n) => Number.isFinite(n))
