@@ -12,6 +12,7 @@ import {
   Bell,
   Bot,
   Building2,
+  CalendarDays,
   Crown,
   GitBranch,
   LayoutDashboard,
@@ -105,6 +106,7 @@ const navSections: NavSection[] = [
       { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
       { href: "/contacts", labelKey: "contacts", icon: Users },
       { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
+      { href: "/agenda", labelKey: "agenda", icon: CalendarDays },
     ],
   },
   {

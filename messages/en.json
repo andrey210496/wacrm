@@ -39,7 +39,8 @@
     "menuProfile": "Profile",
     "menuSettings": "Settings",
     "menuSignOut": "Sign out",
-    "consolidado": "Consolidated"
+    "consolidado": "Consolidated",
+    "agenda": "Schedule"
   },
   "Header": {
     "dashboard": "Dashboard",

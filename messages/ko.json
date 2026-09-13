@@ -39,7 +39,8 @@
     "menuProfile": "프로필",
     "menuSettings": "설정",
     "menuSignOut": "로그아웃",
-    "consolidado": "통합"
+    "consolidado": "통합",
+    "agenda": "일정"
   },
   "Header": {
     "dashboard": "대시보드",

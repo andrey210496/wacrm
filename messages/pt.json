@@ -39,7 +39,8 @@
     "menuProfile": "Perfil",
     "menuSettings": "Configurações",
     "menuSignOut": "Sair",
-    "consolidado": "Consolidado"
+    "consolidado": "Consolidado",
+    "agenda": "Agenda"
   },
   "Header": {
     "dashboard": "Painel",
