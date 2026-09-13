@@ -19,6 +19,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NewAppointmentDialog } from "@/components/scheduling/new-appointment-dialog";
+import { RemindersConfigDialog } from "@/components/scheduling/reminders-config-dialog";
+import { useCan } from "@/hooks/use-can";
+import { Bell } from "lucide-react";
 import type { Service, Resource } from "@/lib/scheduling/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
@@ -37,6 +40,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const tThread = useTranslations("Inbox.messageThread");
 
   const { accountId } = useAuth();
+  const canEditSettings = useCan("edit-settings");
   const [copied, setCopied] = useState(false);
   const [copiedBsuid, setCopiedBsuid] = useState(false);
   const bsuid = (contact as { bsuid?: string | null } | null)?.bsuid ?? null;
@@ -50,6 +54,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [addingNote, setAddingNote] = useState(false);
   // Agendar de dentro do chat.
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const [svcList, setSvcList] = useState<Service[]>([]);
   const [resList, setResList] = useState<Resource[]>([]);
 
@@ -247,6 +252,17 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             >
               <CalendarDays className="mr-1 h-4 w-4" />
               Agendar
+            </Button>
+          )}
+          {/* Configurar lembretes da unidade — só admin. */}
+          {canEditSettings && contact.unit_id && (
+            <Button
+              variant="outline"
+              onClick={() => setRemindersOpen(true)}
+              className="mt-2 w-full border-border text-foreground hover:bg-muted"
+            >
+              <Bell className="mr-1 h-4 w-4" />
+              Lembretes
             </Button>
           )}
 
@@ -478,6 +494,10 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           onCreated={() => {}}
           presetContact={{ id: contact.id, name: contact.name ?? null, phone: contact.phone }}
         />
+      )}
+
+      {canEditSettings && contact.unit_id && (
+        <RemindersConfigDialog open={remindersOpen} onOpenChange={setRemindersOpen} unitId={contact.unit_id} />
       )}
     </div>
   );
