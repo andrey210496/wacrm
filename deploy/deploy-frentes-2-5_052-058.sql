@@ -1,8 +1,9 @@
 -- ================================================================
 -- BUNDLE DE DEPLOY — Frente 2 (Conexão redezap) + Frente 5 (Agenda)
--- Aplique ESTE arquivo no SQL Editor do Supabase da INSTÂNCIA.
--- Migrations 052 a 058, em ordem. Idempotente/aditivo (rodar de novo é seguro).
--- Gerado em: 2026-09-13T22:05:43Z
+-- Migrations 052 a 058, em ordem. IDEMPOTENTE (seguro re-rodar): cada
+-- CREATE POLICY tem um DROP POLICY IF EXISTS antes, e as tabelas/colunas
+-- usam IF NOT EXISTS. Aplique no SQL Editor do Supabase da INSTÂNCIA.
+-- Gerado em: 2026-09-13T22:14:06Z
 -- ================================================================
 
 -- >>>>>>>>>>>>>>>>>>>> 052_channel_hybrid.sql >>>>>>>>>>>>>>>>>>>>
@@ -154,36 +155,46 @@ ALTER TABLE resource_time_off ENABLE ROW LEVEL SECURITY;
 ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
 
 -- services
+DROP POLICY IF EXISTS services_select ON services;
 CREATE POLICY services_select ON services FOR SELECT
   USING (is_account_member(account_id) AND can_see_unit(account_id, unit_id));
+DROP POLICY IF EXISTS services_write ON services;
 CREATE POLICY services_write ON services FOR ALL
   USING (is_account_member(account_id, 'admin') AND can_see_unit(account_id, unit_id))
   WITH CHECK (is_account_member(account_id, 'admin') AND can_see_unit(account_id, unit_id));
 
 -- resources
+DROP POLICY IF EXISTS resources_select ON resources;
 CREATE POLICY resources_select ON resources FOR SELECT
   USING (is_account_member(account_id) AND can_see_unit(account_id, unit_id));
+DROP POLICY IF EXISTS resources_write ON resources;
 CREATE POLICY resources_write ON resources FOR ALL
   USING (is_account_member(account_id, 'admin') AND can_see_unit(account_id, unit_id))
   WITH CHECK (is_account_member(account_id, 'admin') AND can_see_unit(account_id, unit_id));
 
 -- resource_working_hours (leitura por membro; escrita admin) — sem unit direto.
+DROP POLICY IF EXISTS working_hours_select ON resource_working_hours;
 CREATE POLICY working_hours_select ON resource_working_hours FOR SELECT
   USING (is_account_member(account_id));
+DROP POLICY IF EXISTS working_hours_write ON resource_working_hours;
 CREATE POLICY working_hours_write ON resource_working_hours FOR ALL
   USING (is_account_member(account_id, 'admin'))
   WITH CHECK (is_account_member(account_id, 'admin'));
 
 -- resource_time_off (leitura por membro; escrita admin)
+DROP POLICY IF EXISTS time_off_select ON resource_time_off;
 CREATE POLICY time_off_select ON resource_time_off FOR SELECT
   USING (is_account_member(account_id));
+DROP POLICY IF EXISTS time_off_write ON resource_time_off;
 CREATE POLICY time_off_write ON resource_time_off FOR ALL
   USING (is_account_member(account_id, 'admin'))
   WITH CHECK (is_account_member(account_id, 'admin'));
 
 -- appointments (CRUD por agent+, na sua unidade)
+DROP POLICY IF EXISTS appointments_select ON appointments;
 CREATE POLICY appointments_select ON appointments FOR SELECT
   USING (is_account_member(account_id) AND can_see_unit(account_id, unit_id));
+DROP POLICY IF EXISTS appointments_write ON appointments;
 CREATE POLICY appointments_write ON appointments FOR ALL
   USING (is_account_member(account_id, 'agent') AND can_see_unit(account_id, unit_id))
   WITH CHECK (is_account_member(account_id, 'agent') AND can_see_unit(account_id, unit_id));
@@ -290,11 +301,13 @@ ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS reminders JSONB;
 
 -- services
 DROP POLICY IF EXISTS services_write ON services;
+DROP POLICY IF EXISTS services_write ON services;
 CREATE POLICY services_write ON services FOR ALL
   USING (is_account_member(account_id, 'agent') AND can_see_unit(account_id, unit_id))
   WITH CHECK (is_account_member(account_id, 'agent') AND can_see_unit(account_id, unit_id));
 
 -- resources
+DROP POLICY IF EXISTS resources_write ON resources;
 DROP POLICY IF EXISTS resources_write ON resources;
 CREATE POLICY resources_write ON resources FOR ALL
   USING (is_account_member(account_id, 'agent') AND can_see_unit(account_id, unit_id))
@@ -302,11 +315,13 @@ CREATE POLICY resources_write ON resources FOR ALL
 
 -- resource_working_hours
 DROP POLICY IF EXISTS working_hours_write ON resource_working_hours;
+DROP POLICY IF EXISTS working_hours_write ON resource_working_hours;
 CREATE POLICY working_hours_write ON resource_working_hours FOR ALL
   USING (is_account_member(account_id, 'agent'))
   WITH CHECK (is_account_member(account_id, 'agent'));
 
 -- resource_time_off
+DROP POLICY IF EXISTS time_off_write ON resource_time_off;
 DROP POLICY IF EXISTS time_off_write ON resource_time_off;
 CREATE POLICY time_off_write ON resource_time_off FOR ALL
   USING (is_account_member(account_id, 'agent'))
