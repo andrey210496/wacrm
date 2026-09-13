@@ -1,12 +1,16 @@
 // ============================================================
 // POST /api/appointments/reminders/run — worker de lembretes (Fase B).
 //
-// Chamado por um cron (EasyPanel/n8n) com header `x-cron-secret` =
-// REMINDERS_CRON_SECRET. Para cada unidade com lembretes ligados, envia os
-// lembretes vencidos (pelo canal escolhido — Frente 2), com dedupe por
-// (appointment, offset). Fail-closed no segredo; best-effort no envio.
+// Autenticação (fail-closed, timing-safe), aceita QUALQUER um:
+//   - header `x-cron-secret`   = REMINDERS_CRON_SECRET   (cron direto por instância)
+//   - header `x-license-secret` = LICENSE_CONTROL_SECRET (a CENTRAL orquestrando —
+//     ela já detém o segredo de licença de cada instância; assim 1 cron na central
+//     cobre a frota inteira).
+// Para cada unidade com lembretes ligados, envia os vencidos (canal da Frente 2),
+// com dedupe por (appointment, offset). Best-effort no envio.
 // ============================================================
 
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { sendMessageToConversation } from "@/lib/whatsapp/send-message";
@@ -35,10 +39,19 @@ type ApptRow = {
   resource?: { name: string | null } | null;
 };
 
+/** Compara em tempo constante; false se algum lado for vazio/tamanhos diferentes. */
+function safeEq(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
 export async function POST(request: Request) {
-  const expected = process.env.REMINDERS_CRON_SECRET;
-  const supplied = request.headers.get("x-cron-secret") ?? "";
-  if (!expected || supplied !== expected) {
+  const cronOk = safeEq(request.headers.get("x-cron-secret"), process.env.REMINDERS_CRON_SECRET);
+  const licenseOk = safeEq(request.headers.get("x-license-secret"), process.env.LICENSE_CONTROL_SECRET);
+  if (!cronOk && !licenseOk) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
