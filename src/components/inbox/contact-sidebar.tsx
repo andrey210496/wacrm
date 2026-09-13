@@ -15,8 +15,11 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { NewAppointmentDialog } from "@/components/scheduling/new-appointment-dialog";
+import type { Service, Resource } from "@/lib/scheduling/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -45,6 +48,22 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [savingTag, setSavingTag] = useState(false);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  // Agendar de dentro do chat.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [svcList, setSvcList] = useState<Service[]>([]);
+  const [resList, setResList] = useState<Resource[]>([]);
+
+  const openSchedule = useCallback(async () => {
+    if (!contact?.unit_id) return;
+    const supabase = createClient();
+    const [{ data: s }, { data: r }] = await Promise.all([
+      supabase.from("services").select("*").eq("unit_id", contact.unit_id).eq("active", true).order("name"),
+      supabase.from("resources").select("*").eq("unit_id", contact.unit_id).eq("active", true).order("name"),
+    ]);
+    setSvcList((s ?? []) as Service[]);
+    setResList((r ?? []) as Resource[]);
+    setScheduleOpen(true);
+  }, [contact?.unit_id]);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -219,6 +238,17 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               <p className="text-xs text-muted-foreground">{contact.company}</p>
             )}
           </div>
+
+          {/* Agendar direto do chat — cliente já preenchido, unidade da conversa. */}
+          {contact.phone && (
+            <Button
+              onClick={openSchedule}
+              className="mt-3 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <CalendarDays className="mr-1 h-4 w-4" />
+              Agendar
+            </Button>
+          )}
 
           {/* Phone */}
           <div className="mt-4 space-y-2">
@@ -435,6 +465,20 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      {contact.unit_id && accountId && (
+        <NewAppointmentDialog
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
+          unitId={contact.unit_id}
+          accountId={accountId}
+          services={svcList}
+          resources={resList}
+          defaultDate={new Date().toLocaleDateString("en-CA")}
+          onCreated={() => {}}
+          presetContact={{ id: contact.id, name: contact.name ?? null, phone: contact.phone }}
+        />
+      )}
     </div>
   );
 }

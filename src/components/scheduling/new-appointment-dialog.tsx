@@ -21,6 +21,8 @@ type Props = {
   resources: Resource[];
   defaultDate: string; // YYYY-MM-DD (local)
   onCreated: () => void;
+  /** Pré-seleciona o cliente (ex.: agendar de dentro do chat). */
+  presetContact?: { id: string; name: string | null; phone: string | null } | null;
 };
 
 /** Constrói faixas de trabalho (Date local) do recurso para a data. */
@@ -45,6 +47,7 @@ export function NewAppointmentDialog({
   resources,
   defaultDate,
   onCreated,
+  presetContact,
 }: Props) {
   const supabase = createClient();
   const [serviceId, setServiceId] = useState("");
@@ -65,11 +68,11 @@ export function NewAppointmentDialog({
       setResourceId(resources[0]?.id ?? "");
       setDate(defaultDate);
       setSlotIdx(null);
-      setContact(null);
+      setContact(presetContact ?? null);
       setQuery("");
       setNotes("");
     }
-  }, [open, defaultDate, services, resources]);
+  }, [open, defaultDate, services, resources, presetContact]);
 
   const service = useMemo(() => services.find((s) => s.id === serviceId), [services, serviceId]);
 
