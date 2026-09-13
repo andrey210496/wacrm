@@ -24,6 +24,42 @@ export function renderReminder(
   return text.replace(/\{(\w+)\}/g, (_, key: string) => lower[key.toLowerCase()] ?? "");
 }
 
+export type ReminderItem = { offset_min: number; text: string };
+
+/**
+ * Lista EFETIVA de lembretes a disparar (Fase B.2 — mensagem por lembrete).
+ * Prioriza `reminders` (cada item com antecedência + texto + on/off). Se não
+ * houver, cai no modelo antigo: `reminder_offsets_min` + o `reminder_text` único
+ * (mesmo texto pra todas as antecedências). Ignora itens sem texto/antecedência
+ * ou desligados. Puro.
+ */
+export function effectiveReminders(cfg: {
+  reminders?: { offset_min?: unknown; text?: unknown; enabled?: unknown }[] | null;
+  reminder_offsets_min?: number[] | null;
+  reminder_text?: string | null;
+}): ReminderItem[] {
+  const list = cfg.reminders;
+  if (Array.isArray(list) && list.length > 0) {
+    return list
+      .filter(
+        (r) =>
+          r &&
+          r.enabled !== false &&
+          typeof r.offset_min === "number" &&
+          (r.offset_min as number) > 0 &&
+          typeof r.text === "string" &&
+          (r.text as string).trim() !== "",
+      )
+      .map((r) => ({ offset_min: r.offset_min as number, text: (r.text as string).trim() }));
+  }
+  // Fallback: modelo antigo (offsets + texto único).
+  const text = (cfg.reminder_text ?? "").trim();
+  if (!text) return [];
+  return (cfg.reminder_offsets_min ?? [])
+    .filter((o) => o > 0)
+    .map((o) => ({ offset_min: o, text }));
+}
+
 /**
  * Quais offsets (minutos antes) estão VENCIDOS e ainda não enviados, para um
  * agendamento que começa em `apptStart`. Um offset O dispara quando `now` cruza

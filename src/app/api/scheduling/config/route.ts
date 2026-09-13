@@ -13,6 +13,7 @@ function defaults(unitId: string, accountId: string): SchedulingConfig {
     reminder_offsets_min: [1440, 180],
     reminder_channel: "auto",
     reminder_text: "Olá {cliente}! Lembrete do seu horário de {servico} em {data} às {hora}. Responda SIM para confirmar.",
+    reminders: null,
     confirm_enabled: true,
     confirm_keywords: ["sim", "confirmar", "confirmado", "ok", "1"],
     funnel_pipeline_id: null,
@@ -78,6 +79,12 @@ export async function POST(request: Request) {
         : [1440, 180],
       reminder_channel: channel === "official" || channel === "uazapi" ? channel : "auto",
       reminder_text: typeof body.reminder_text === "string" && body.reminder_text.trim() ? body.reminder_text : undefined,
+      reminders: Array.isArray(body.reminders)
+        ? (body.reminders as unknown[])
+            .map((r) => r as { offset_min?: unknown; text?: unknown; enabled?: unknown })
+            .filter((r) => typeof r.offset_min === "number" && (r.offset_min as number) > 0 && typeof r.text === "string")
+            .map((r) => ({ offset_min: Math.round(r.offset_min as number), text: (r.text as string), enabled: r.enabled !== false }))
+        : null,
       confirm_enabled: body.confirm_enabled !== false,
       confirm_keywords: Array.isArray(body.confirm_keywords)
         ? (body.confirm_keywords as unknown[]).map((s) => String(s).trim().toLowerCase()).filter(Boolean)

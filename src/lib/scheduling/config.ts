@@ -12,6 +12,7 @@ export type SchedulingConfig = {
   reminder_offsets_min: number[];
   reminder_channel: "auto" | "official" | "uazapi";
   reminder_text: string;
+  reminders: { offset_min: number; text: string; enabled: boolean }[] | null;
   confirm_enabled: boolean;
   confirm_keywords: string[];
   funnel_pipeline_id: string | null;

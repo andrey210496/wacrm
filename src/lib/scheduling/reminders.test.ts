@@ -1,6 +1,37 @@
 import { describe, it, expect } from "vitest";
-import { renderReminder, dueOffsets, isConfirmIntent } from "./reminders";
+import { renderReminder, dueOffsets, isConfirmIntent, effectiveReminders } from "./reminders";
 import { pickDealToMove, stageKeyForStatus } from "./funnel";
+
+describe("effectiveReminders", () => {
+  it("usa a lista `reminders` (com texto por item), ignorando desligados/vazios", () => {
+    const out = effectiveReminders({
+      reminders: [
+        { offset_min: 1440, text: "amanhã {hora}", enabled: true },
+        { offset_min: 180, text: "hoje {hora}", enabled: false }, // desligado
+        { offset_min: 60, text: "  ", enabled: true }, // vazio
+        { offset_min: 30, text: "daqui a pouco" }, // enabled ausente = liga
+      ],
+      reminder_offsets_min: [9999],
+      reminder_text: "ignorado",
+    });
+    expect(out).toEqual([
+      { offset_min: 1440, text: "amanhã {hora}" },
+      { offset_min: 30, text: "daqui a pouco" },
+    ]);
+  });
+
+  it("fallback: sem `reminders`, usa offsets antigos + texto único", () => {
+    const out = effectiveReminders({ reminders: null, reminder_offsets_min: [1440, 180], reminder_text: "oi {cliente}" });
+    expect(out).toEqual([
+      { offset_min: 1440, text: "oi {cliente}" },
+      { offset_min: 180, text: "oi {cliente}" },
+    ]);
+  });
+
+  it("sem texto nenhum → vazio", () => {
+    expect(effectiveReminders({ reminder_offsets_min: [180], reminder_text: "" })).toEqual([]);
+  });
+});
 
 describe("renderReminder", () => {
   it("troca placeholders (case-insensitive) e vazio p/ ausente", () => {

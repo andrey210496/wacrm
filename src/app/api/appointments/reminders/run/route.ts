@@ -15,7 +15,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { sendMessageToConversation } from "@/lib/whatsapp/send-message";
 import { resolveConversationForContact } from "@/lib/whatsapp/resolve-conversation";
-import { dueOffsets, renderReminder } from "@/lib/scheduling/reminders";
+import { dueOffsets, renderReminder, effectiveReminders } from "@/lib/scheduling/reminders";
 import type { SchedulingConfig } from "@/lib/scheduling/config";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +66,10 @@ export async function POST(request: Request) {
     .eq("reminders_enabled", true);
 
   for (const cfg of ((configs ?? []) as SchedulingConfig[])) {
-    const offsets = (cfg.reminder_offsets_min ?? []).filter((o) => o > 0);
+    // Lista efetiva: cada lembrete tem seu texto (fallback pro texto único).
+    const items = effectiveReminders(cfg);
+    const offsets = [...new Set(items.map((i) => i.offset_min))];
+    const textByOffset = new Map(items.map((i) => [i.offset_min, i.text]));
     if (offsets.length === 0) continue;
     const horizon = new Date(now.getTime() + Math.max(...offsets) * 60_000);
 
@@ -109,15 +112,17 @@ export async function POST(request: Request) {
         console.warn(`[reminders] appt ${appt.id} sem telefone — pulando`);
         continue;
       }
-      const text = renderReminder(cfg.reminder_text, {
+      const vars = {
         cliente: firstName(appt.contact?.name),
         servico: appt.service?.name ?? "",
         recurso: appt.resource?.name ?? "",
         data: fmtDate(start),
         hora: fmtTime(start),
-      });
+      };
 
       for (const off of due) {
+        const text = renderReminder(textByOffset.get(off) ?? "", vars);
+        if (!text.trim()) continue; // sem texto pra esse offset → pula
         // 1) REIVINDICA (status 'pending') ANTES de enviar. Novo offset → INSERT
         //    (a UNIQUE trava corrida entre crons). Offset que falhou antes →
         //    reivindica com UPDATE otimístico (só pega se o status ainda é o que

@@ -11,11 +11,13 @@ import { parseApiResponse } from "@/lib/http/api-response";
 
 type Pipeline = { id: string; name: string };
 type Stage = { id: string; name: string; pipeline_id: string };
+type RemItem = { offset_min: number; text: string; enabled: boolean };
 type Cfg = {
   reminders_enabled: boolean;
   reminder_offsets_min: number[];
   reminder_channel: "auto" | "official" | "uazapi";
   reminder_text: string;
+  reminders: RemItem[] | null;
   confirm_enabled: boolean;
   confirm_keywords: string[];
   funnel_pipeline_id: string | null;
@@ -36,7 +38,7 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
-  const [offsetsText, setOffsetsText] = useState("1440, 180");
+  const [remList, setRemList] = useState<RemItem[]>([]);
   const [keywordsText, setKeywordsText] = useState("sim, confirmar, ok, 1");
   const [busy, setBusy] = useState(false);
 
@@ -46,7 +48,13 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
     if (p.ok && p.data?.config) {
       const c = p.data.config;
       setCfg(c);
-      setOffsetsText((c.reminder_offsets_min ?? []).join(", "));
+      // Semente da lista: usa `reminders` se houver; senão monta a partir dos
+      // offsets antigos + texto único (1 item por antecedência).
+      const seeded: RemItem[] =
+        Array.isArray(c.reminders) && c.reminders.length > 0
+          ? c.reminders.map((r) => ({ offset_min: r.offset_min, text: r.text, enabled: r.enabled !== false }))
+          : (c.reminder_offsets_min ?? []).map((o) => ({ offset_min: o, text: c.reminder_text ?? "", enabled: true }));
+      setRemList(seeded.length > 0 ? seeded : [{ offset_min: 180, text: c.reminder_text ?? "", enabled: true }]);
       setKeywordsText((c.confirm_keywords ?? []).join(", "));
     }
     const [{ data: pl }, { data: st }] = await Promise.all([
@@ -66,12 +74,20 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
   async function save() {
     if (!cfg) return;
     setBusy(true);
-    const offsets = offsetsText.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0);
+    const reminders = remList
+      .map((r) => ({ offset_min: Math.max(1, Math.round(Number(r.offset_min) || 0)), text: r.text, enabled: r.enabled }))
+      .filter((r) => r.offset_min > 0 && r.text.trim() !== "");
     const keywords = keywordsText.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     const r = await fetch("/api/scheduling/config", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ unitId, ...cfg, reminder_offsets_min: offsets, confirm_keywords: keywords }),
+      body: JSON.stringify({
+        unitId,
+        ...cfg,
+        reminders,
+        reminder_offsets_min: reminders.map((x) => x.offset_min),
+        confirm_keywords: keywords,
+      }),
     });
     const p = await parseApiResponse(r);
     setBusy(false);
@@ -116,30 +132,62 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
             </label>
 
             <div className={cfg.reminders_enabled ? "space-y-3" : "space-y-3 pointer-events-none opacity-50"}>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-muted-foreground text-xs">Antecedência (min, separados por vírgula)</Label>
-                  <Input value={offsetsText} onChange={(e) => setOffsetsText(e.target.value)} className="mt-1" placeholder="1440, 180" />
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs">Canal</Label>
-                  <select value={cfg.reminder_channel} onChange={(e) => set("reminder_channel", e.target.value as Cfg["reminder_channel"])} className="input mt-1 w-full">
-                    <option value="auto">Automático (Conexão redezap)</option>
-                    <option value="official">Sempre oficial</option>
-                    <option value="uazapi">Sempre uazapi</option>
-                  </select>
-                </div>
-              </div>
               <div>
-                <Label className="text-muted-foreground text-xs">Texto do lembrete</Label>
-                <textarea
-                  value={cfg.reminder_text}
-                  onChange={(e) => set("reminder_text", e.target.value)}
-                  rows={3}
-                  className="input mt-1 w-full"
-                />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Placeholders: {"{cliente} {servico} {recurso} {data} {hora}"}
+                <Label className="text-muted-foreground text-xs">Canal de envio</Label>
+                <select value={cfg.reminder_channel} onChange={(e) => set("reminder_channel", e.target.value as Cfg["reminder_channel"])} className="input mt-1 w-full">
+                  <option value="auto">Automático (Conexão redezap)</option>
+                  <option value="official">Sempre oficial</option>
+                  <option value="uazapi">Sempre uazapi</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-muted-foreground text-xs">Lembretes (cada um com antecedência e texto próprios)</Label>
+                {remList.map((r, i) => (
+                  <div key={i} className="rounded-md border border-border p-2 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={r.enabled}
+                          onChange={(e) => setRemList((p) => p.map((x, j) => (j === i ? { ...x, enabled: e.target.checked } : x)))}
+                        />
+                        ativo
+                      </label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={r.offset_min}
+                        onChange={(e) => setRemList((p) => p.map((x, j) => (j === i ? { ...x, offset_min: Number(e.target.value) } : x)))}
+                        className="h-8 w-24"
+                      />
+                      <span className="text-[11px] text-muted-foreground">min antes</span>
+                      <button
+                        type="button"
+                        onClick={() => setRemList((p) => p.filter((_, j) => j !== i))}
+                        className="ml-auto text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        remover
+                      </button>
+                    </div>
+                    <textarea
+                      value={r.text}
+                      onChange={(e) => setRemList((p) => p.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
+                      rows={2}
+                      placeholder="Olá {cliente}! Seu {servico} é em {data} às {hora}. Responda SIM para confirmar."
+                      className="input w-full text-xs"
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setRemList((p) => [...p, { offset_min: 60, text: "", enabled: true }])}
+                  className="text-xs text-primary hover:underline"
+                >
+                  + adicionar lembrete
+                </button>
+                <p className="text-[11px] text-muted-foreground">
+                  Placeholders: {"{cliente} {servico} {recurso} {data} {hora}"} · Ex.: 1440 = 24h antes, 180 = 3h antes.
                 </p>
               </div>
             </div>
