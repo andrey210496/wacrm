@@ -27,6 +27,7 @@ import { DeadLetterAlert } from '@/components/settings/deadletter-alert';
 import { BillingPanel } from '@/components/settings/billing-panel';
 import { UazapiChannelPanel } from '@/components/settings/uazapi-channel-panel';
 import { ConexaoRedezapPanel } from '@/components/settings/conexao-redezap-panel';
+import { PerfilWhatsappPanel } from '@/components/settings/perfil-whatsapp-panel';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -1160,6 +1161,8 @@ export function WhatsAppConfig() {
     <UazapiChannelPanel />
     {/* Conexão redezap (híbrido por custo) por unidade — só admin. */}
     <ConexaoRedezapPanel />
+    {/* Perfil do WhatsApp Business (foto + campos + username atrás de flag) — só admin. */}
+    <PerfilWhatsappPanel />
     </section>
   );
 }
