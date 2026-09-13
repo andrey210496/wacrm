@@ -88,6 +88,9 @@
 
 :root,
 html[data-mode="dark"] {
+  /* Faz os controles NATIVOS (popup de <select>, date/time picker, scrollbar)
+     renderizarem no tema escuro — senão o dropdown de opção fica branco. */
+  color-scheme: dark;
   --background: oklch(0.15 0.018 240);
   --foreground: oklch(0.985 0.003 240);
   --card: oklch(0.196 0.018 240);
@@ -117,6 +120,7 @@ html[data-mode="dark"] {
 }
 
 html[data-mode="light"] {
+  color-scheme: light;
   --background: oklch(0.99 0.004 240);
   --foreground: oklch(0.2 0.015 240);
   --card: oklch(1 0 0);
@@ -256,6 +260,35 @@ html[data-theme="rose"] {
   ::selection {
     background: var(--primary-soft-2);
   }
+}
+
+/* ============================================================
+ * Campos de formulário dos painéis (className="input") + opções de <select>.
+ * Consistente e legível nos dois modos; o popup nativo do <select> segue o
+ * color-scheme (dark/light) definido acima, e as <option> usam os tokens.
+ * ============================================================ */
+.input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--input);
+  background-color: var(--card);
+  color: var(--foreground);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 35%, transparent);
+}
+.input::placeholder {
+  color: var(--muted-foreground);
+}
+select.input option,
+option {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
 }
 
 /* ============================================================
