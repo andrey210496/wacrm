@@ -177,6 +177,23 @@ export async function resolveConversationByPhone(
 }
 
 /**
+ * Resolve (ou cria) a conversa de um CONTATO já conhecido numa UNIDADE
+ * específica. Diferente de `resolveConversationByPhone` (que usa a unidade
+ * PADRÃO da conta), aqui a unidade é dada — usado pelo worker de lembretes: o
+ * agendamento sabe o contato e a unidade dele, e o lembrete deve sair do
+ * WhatsApp DAQUELA unidade, não da padrão.
+ */
+export async function resolveConversationForContact(
+  db: SupabaseClient,
+  accountId: string,
+  unitId: string,
+  contactId: string,
+): Promise<string> {
+  const ownerUserId = await resolveAuditUserId(db, accountId);
+  return findOrCreateConversationRow(db, accountId, unitId, contactId, ownerUserId);
+}
+
+/**
  * Find (oldest-first) or create the single conversation for
  * `(accountId, contactId)`. Handles the unique-index race the same way
  * the inbound webhook does: on a 23505 from a concurrent create,

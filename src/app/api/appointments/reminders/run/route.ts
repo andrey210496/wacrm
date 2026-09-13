@@ -14,7 +14,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { sendMessageToConversation } from "@/lib/whatsapp/send-message";
-import { resolveConversationByPhone } from "@/lib/whatsapp/resolve-conversation";
+import { resolveConversationForContact } from "@/lib/whatsapp/resolve-conversation";
 import { dueOffsets, renderReminder } from "@/lib/scheduling/reminders";
 import type { SchedulingConfig } from "@/lib/scheduling/config";
 
@@ -154,7 +154,9 @@ export async function POST(request: Request) {
         //    ao atendente na agenda). Falha continua sendo re-tentada no próximo
         //    cron (o offset segue "due" enquanto não for 'sent').
         try {
-          const { conversationId } = await resolveConversationByPhone(admin, cfg.account_id, phone, appt.contact?.name ?? null);
+          // Conversa NA UNIDADE do agendamento — o lembrete sai do WhatsApp dessa
+          // unidade (não da padrão da conta).
+          const conversationId = await resolveConversationForContact(admin, cfg.account_id, cfg.unit_id, appt.contact_id);
           await sendMessageToConversation(admin, cfg.account_id, {
             conversationId,
             messageType: "text",
