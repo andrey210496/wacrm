@@ -36,7 +36,6 @@ const STATUS_BADGE: Record<AppointmentStatus, string> = {
 export function AgendaPage() {
   const supabase = createClient();
   const { accountId } = useAuth();
-  const canEditSettings = useCan("edit-settings");
   const canBook = useCan("send-messages");
   const { selectedUnitId } = useUnitScope();
 
@@ -188,7 +187,7 @@ export function AgendaPage() {
           )}
           <GatedButton
             variant="outline"
-            canAct={canEditSettings}
+            canAct={canBook}
             gateReason="configurar lembretes"
             onClick={() => setRemindersOpen(true)}
             className="border-border bg-card text-foreground hover:bg-muted"
@@ -198,7 +197,7 @@ export function AgendaPage() {
           </GatedButton>
           <GatedButton
             variant="outline"
-            canAct={canEditSettings}
+            canAct={canBook}
             gateReason="editar catálogo"
             onClick={() => setCatalogOpen(true)}
             className="border-border bg-card text-foreground hover:bg-muted"
@@ -227,7 +226,7 @@ export function AgendaPage() {
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Cadastre <b>serviços</b> e <b>recursos</b> (profissional, sala, equipamento) com seus horários de trabalho para começar a agendar.
           </p>
-          <GatedButton canAct={canEditSettings} gateReason="editar catálogo" onClick={() => setCatalogOpen(true)} className="mt-4 bg-primary text-primary-foreground">
+          <GatedButton canAct={canBook} gateReason="editar catálogo" onClick={() => setCatalogOpen(true)} className="mt-4 bg-primary text-primary-foreground">
             <Settings className="mr-1 h-4 w-4" />
             Abrir catálogo
           </GatedButton>

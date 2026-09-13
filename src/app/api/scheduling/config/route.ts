@@ -1,5 +1,5 @@
 // GET/POST /api/scheduling/config — config de lembretes + funil por unidade.
-// Sessão ADMIN+.
+// Sessão AGENT+ (atendentes podem criar/editar lembretes).
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
@@ -31,7 +31,7 @@ function defaults(unitId: string, accountId: string): SchedulingConfig {
 export async function GET(request: Request) {
   let ctx;
   try {
-    ctx = await requireRole("admin");
+    ctx = await requireRole("agent");
   } catch (err) {
     return toErrorResponse(err);
   }
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let ctx;
   try {
-    ctx = await requireRole("admin");
+    ctx = await requireRole("agent");
   } catch (err) {
     return toErrorResponse(err);
   }

@@ -40,7 +40,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const tThread = useTranslations("Inbox.messageThread");
 
   const { accountId } = useAuth();
-  const canEditSettings = useCan("edit-settings");
+  // Lembretes: liberado para atendentes (agent+), não só admin.
+  const canManageReminders = useCan("send-messages");
   const [copied, setCopied] = useState(false);
   const [copiedBsuid, setCopiedBsuid] = useState(false);
   const bsuid = (contact as { bsuid?: string | null } | null)?.bsuid ?? null;
@@ -255,7 +256,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             </Button>
           )}
           {/* Configurar lembretes da unidade — só admin. */}
-          {canEditSettings && contact.unit_id && (
+          {canManageReminders && contact.unit_id && (
             <Button
               variant="outline"
               onClick={() => setRemindersOpen(true)}
@@ -496,7 +497,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         />
       )}
 
-      {canEditSettings && contact.unit_id && (
+      {canManageReminders && contact.unit_id && (
         <RemindersConfigDialog open={remindersOpen} onOpenChange={setRemindersOpen} unitId={contact.unit_id} />
       )}
     </div>
