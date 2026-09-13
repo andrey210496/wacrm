@@ -9,6 +9,7 @@ import { reopenClosedConversation } from '@/lib/conversations/reopen'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { maybeConfirmAppointment } from '@/lib/scheduling/confirm-inbound'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
   handleTemplateWebhookChange,
@@ -799,6 +800,14 @@ async function processMessage(
   // Fire-and-forget: a slow or failing automation must not block the
   // webhook's 200 OK response to Meta.
   const inboundText = contentText ?? message.text?.body ?? ''
+
+  // Confirmação de agendamento por palavra-chave (Fase B). Best-effort.
+  await maybeConfirmAppointment({
+    unitId: conversation.unit_id,
+    contactId: contactRecord.id,
+    text: inboundText,
+  })
+
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
@@ -995,6 +1004,13 @@ export async function ingestNormalizedInbound(params: {
   await reopenClosedConversation(supabaseAdmin(), conversation)
 
   const inboundText = content.text ?? ''
+
+  // Confirmação de agendamento por palavra-chave (Fase B). Best-effort.
+  await maybeConfirmAppointment({
+    unitId: conversation.unit_id,
+    contactId: contactRecord.id,
+    text: inboundText,
+  })
 
   const flowResult = await dispatchInboundToFlows({
     accountId,

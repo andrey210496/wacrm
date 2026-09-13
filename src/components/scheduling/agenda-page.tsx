@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCan } from "@/hooks/use-can";
 import { useUnitScope } from "@/components/units/unit-scope-provider";
 import { GatedButton } from "@/components/ui/gated-button";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Settings } from "lucide-react";
+import { Bell, CalendarDays, ChevronLeft, ChevronRight, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
 import {
   STATUS_LABEL,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/scheduling/types";
 import { CatalogDialog } from "@/components/scheduling/catalog-dialog";
 import { NewAppointmentDialog } from "@/components/scheduling/new-appointment-dialog";
+import { RemindersConfigDialog } from "@/components/scheduling/reminders-config-dialog";
 
 type Unit = { id: string; name: string };
 
@@ -48,6 +49,7 @@ export function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
 
   // Unidades (para admin que vê várias). Agente já vem preso à sua unidade.
   useEffect(() => {
@@ -107,13 +109,16 @@ export function AgendaPage() {
   };
 
   async function setStatus(id: string, status: AppointmentStatus) {
-    // Otimista.
+    // Otimista. Vai por rota (muda status + move o funil server-side).
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    if (error) {
+    try {
+      const r = await fetch("/api/appointments/status", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      if (!r.ok) throw new Error();
+    } catch {
       toast.error("Falha ao atualizar status.");
       loadAppointments();
     }
@@ -166,6 +171,16 @@ export function AgendaPage() {
               ))}
             </select>
           )}
+          <GatedButton
+            variant="outline"
+            canAct={canEditSettings}
+            gateReason="configurar lembretes"
+            onClick={() => setRemindersOpen(true)}
+            className="border-border bg-card text-foreground hover:bg-muted"
+          >
+            <Bell className="mr-1 h-4 w-4" />
+            Lembretes
+          </GatedButton>
           <GatedButton
             variant="outline"
             canAct={canEditSettings}
@@ -226,6 +241,7 @@ export function AgendaPage() {
       {unitId && accountId && (
         <>
           <CatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} unitId={unitId} accountId={accountId} onChanged={loadCatalog} />
+          <RemindersConfigDialog open={remindersOpen} onOpenChange={setRemindersOpen} unitId={unitId} />
           <NewAppointmentDialog
             open={newOpen}
             onOpenChange={setNewOpen}
