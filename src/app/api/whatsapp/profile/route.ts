@@ -154,6 +154,7 @@ export async function POST(request: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
     console.error("[whatsapp/profile POST] Meta error:", message);
-    return NextResponse.json({ error: `A Meta recusou a atualização: ${message}` }, { status: 502 });
+    // 422 (não 502): recusa da Meta, não falha de gateway (ver username/route).
+    return NextResponse.json({ error: `A Meta recusou a atualização: ${message}` }, { status: 422 });
   }
 }
