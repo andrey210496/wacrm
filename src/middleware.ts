@@ -106,7 +106,11 @@ export async function middleware(request: NextRequest) {
       !request.nextUrl.pathname.includes('/relay') &&
       // O worker de retry da dead-letter é acionado por cron (server-to-server),
       // autenticado por x-cron-secret, não por sessão — igual webhook/relay.
-      !request.nextUrl.pathname.includes('/deadletter/drain')) {
+      !request.nextUrl.pathname.includes('/deadletter/drain') &&
+      // O fleet-summary é puxado pela central (Gestão USAI) server-to-server,
+      // autenticado por x-license-secret — não por sessão. (billing/summary e
+      // billing/rates continuam protegidos por sessão de admin.)
+      !request.nextUrl.pathname.includes('/billing/fleet-summary')) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )
