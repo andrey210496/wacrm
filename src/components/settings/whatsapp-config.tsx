@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
+import { CoexConnectButton } from './coex-connect-button';
 import {
   Accordion,
   AccordionItem,
@@ -844,6 +845,29 @@ export function WhatsAppConfig() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Conexão 1-clique (Coexistence) — o cliente conecta mantendo o app
+                WhatsApp Business. Só aparece se o app/config de coex estiver no
+                ambiente; o formulário de token abaixo continua como alternativa. */}
+            <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
+              <p className="text-sm font-medium text-foreground">Conexão rápida</p>
+              <p className="text-xs text-muted-foreground">
+                Conecte pelo Facebook mantendo seu WhatsApp Business normal (Coexistence).
+                Selecione a unidade acima antes de conectar.
+              </p>
+              <CoexConnectButton
+                unitId={activeUnitId}
+                onConnected={() => {
+                  if (accountId) void fetchConfig(accountId, activeUnitId);
+                }}
+              />
+            </div>
+
+            <div className="flex items-center gap-3 py-1">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">ou com token manual</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
             <div className="space-y-2">
               <Label className="text-muted-foreground">{t('phoneNumberId')}</Label>
               <Input

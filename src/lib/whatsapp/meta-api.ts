@@ -178,6 +178,47 @@ export async function subscribeWabaToApp(
   }
 }
 
+// ============================================================
+// Coexistence — sync de dados do app WhatsApp Business (SMB App Data API)
+// ============================================================
+//
+// Após onboard COEX (número que já vive no app WhatsApp Business), a doc oficial
+// manda PULAR o /register (o número já está registrado) e disparar dois syncs
+// em até 24h para trazer contatos e histórico:
+//   POST /{phone_number_id}/smb_app_data { messaging_product, sync_type }
+//     sync_type = "smb_app_state_sync" (contatos) | "history" (histórico)
+// A Meta então entrega os dados por webhook (history / smb_app_state_sync /
+// smb_message_echoes). Idempotente o suficiente para re-disparar sem dano.
+
+export type SmbSyncType = 'smb_app_state_sync' | 'history'
+
+export interface SyncSmbAppDataArgs {
+  phoneNumberId: string
+  accessToken: string
+  syncType: SmbSyncType
+}
+
+/**
+ * Dispara um sync do app WhatsApp Business (coex). Lança com a mensagem crua da
+ * Meta em não-2xx. O chamador costuma tratar como best-effort (não bloquear a
+ * conexão), mas registrando o erro.
+ */
+export async function syncSmbAppData(args: SyncSmbAppDataArgs): Promise<void> {
+  const { phoneNumberId, accessToken, syncType } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/smb_app_data`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ messaging_product: 'whatsapp', sync_type: syncType }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 export interface GetSubscribedAppsArgs {
   wabaId: string
   accessToken: string
