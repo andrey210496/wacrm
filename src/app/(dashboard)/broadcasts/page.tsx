@@ -18,6 +18,7 @@ import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
+import { useUnitScope } from '@/components/units/unit-scope-provider';
 
 /**
  * Poll cadence while any broadcast is sending. Kept modest so we don't
@@ -62,6 +63,8 @@ export default function BroadcastsPage() {
   const t = useTranslations('Broadcasts.page');
   const tStatus = useTranslations('Broadcasts.status');
   const canCreate = useCan('send-messages');
+  // Management-side unit filter (`null` = all units, admin+ only).
+  const { selectedUnitId } = useUnitScope();
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,10 +75,14 @@ export default function BroadcastsPage() {
   async function fetchBroadcasts() {
     try {
       const supabase = createClient();
-      const { data, error: fetchError } = await supabase
+      let query = supabase
         .from('broadcasts')
         .select('*')
         .order('created_at', { ascending: false });
+
+      if (selectedUnitId) query = query.eq('unit_id', selectedUnitId);
+
+      const { data, error: fetchError } = await query;
 
       if (fetchError) throw fetchError;
       setBroadcasts(data ?? []);
@@ -88,7 +95,11 @@ export default function BroadcastsPage() {
 
   useEffect(() => {
     fetchBroadcasts();
-  }, []);
+    // Refetch when the admin switches units. `fetchBroadcasts` is a
+    // stable closure over the latest `selectedUnitId`, so keying the
+    // effect on it re-scopes the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUnitId]);
 
   const anySending = useMemo(
     () => broadcasts.some((b) => b.status === 'sending'),
@@ -182,7 +193,7 @@ export default function BroadcastsPage() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+          <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">{t('title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {t('subtitle')}
           </p>

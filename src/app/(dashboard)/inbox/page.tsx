@@ -200,10 +200,14 @@ function InboxPageInner() {
         return;
       }
 
+      // .limit(1): an account may hold multiple config rows (one per unit,
+      // migration 042); a bare .maybeSingle() errors on ≥2. Any connected
+      // config is enough to treat the inbox as WhatsApp-connected.
       const { data } = await supabase
         .from("whatsapp_config")
         .select("status")
         .eq("account_id", accountId)
+        .limit(1)
         .maybeSingle();
 
       setWhatsappConnected(data?.status === "connected");

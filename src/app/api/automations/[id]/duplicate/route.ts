@@ -40,6 +40,9 @@ export async function POST(
       // Clone into the same account as the original. account_id is NOT
       // NULL post-017, so the INSERT fails the constraint without it.
       account_id: original.account_id,
+      // Same unit as the source — unit_id is NOT NULL since migration 043,
+      // and the duplicate logically lives in the same unidade.
+      unit_id: original.unit_id,
       user_id: user.id,
       name: `${original.name} (Copy)`,
       description: original.description,

@@ -69,17 +69,48 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
+  // Closed signup — SILO instances are provisioned per client, not
+  // self-serve. When SIGNUP_DISABLED is set, block anonymous access to
+  // /signup EXCEPT when an invite token is present: teammates still
+  // join via /join/<token> -> /signup?invite=<token>, and that flow
+  // must keep working. The signup submit handler also re-checks this
+  // server-side (defense in depth — a stale cached copy of the page,
+  // e.g. behind a CDN, could otherwise bypass this redirect entirely).
+  if (
+    !user &&
+    request.nextUrl.pathname === '/signup' &&
+    process.env.SIGNUP_DISABLED === 'true' &&
+    !request.nextUrl.searchParams.get('invite')
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.search = ''
+    return withRefreshedCookies(NextResponse.redirect(url))
+  }
+
   // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
+  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/agenda', '/broadcasts', '/automations', '/settings']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // API routes that need auth (not webhooks)
+  // API routes that need auth (not webhooks / relay). The relay
+  // endpoint is called server-to-server by the WhatsApp Gateway central
+  // (Gestão USAI) and authenticates itself with an HMAC relay signature,
+  // not a browser session — so it must bypass the session gate exactly
+  // like the direct Meta webhook does.
   if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+      !request.nextUrl.pathname.includes('/webhook') &&
+      !request.nextUrl.pathname.includes('/relay') &&
+      // O worker de retry da dead-letter é acionado por cron (server-to-server),
+      // autenticado por x-cron-secret, não por sessão — igual webhook/relay.
+      !request.nextUrl.pathname.includes('/deadletter/drain') &&
+      // O fleet-summary é puxado pela central (Gestão USAI) server-to-server,
+      // autenticado por x-license-secret — não por sessão. (billing/summary e
+      // billing/rates continuam protegidos por sessão de admin.)
+      !request.nextUrl.pathname.includes('/billing/fleet-summary')) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )

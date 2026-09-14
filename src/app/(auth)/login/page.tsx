@@ -5,23 +5,9 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { MessageSquare, UsersRound } from "lucide-react";
+import { UsersRound } from "lucide-react";
+import { AuthShell, GlowInput, ShineButton } from "@/components/auth/auth-shell";
 
-// `useSearchParams` opts the component out of static prerendering
-// unless it sits under a Suspense boundary. We split the form into
-// a child component so the outer page can prerender the chrome
-// (background, card frame) while the form hydrates with the query
-// string on the client.
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
@@ -32,9 +18,6 @@ export default function LoginPage() {
 
 function LoginPageInner() {
   const searchParams = useSearchParams();
-  // Forwarded from `/join/<token>` when the visitor already has an
-  // account. After a successful sign-in we send them to the join
-  // page to accept rather than to /dashboard.
   const inviteToken = searchParams.get("invite");
   const t = useTranslations("LoginPage");
 
@@ -49,25 +32,15 @@ function LoginPageInner() {
     setError(null);
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
 
-    // Full-page navigation (not router.push) so the browser issues a
-    // fresh top-level request that carries the just-written Supabase
-    // auth cookies to the middleware gating /dashboard. A soft
-    // client-side navigation can reach the protected route before the
-    // server observes the new session, so the middleware bounces it
-    // back to /login — which looks like the page "just refreshing"
-    // instead of signing in (issue #365). Mirrors the deliberate full
-    // reload the invite-accept flow already uses in join/[token].
+    // Full-page navigation so the fresh Supabase auth cookies reach the
+    // middleware before it gates /dashboard (issue #365).
     const destination = inviteToken
       ? `/join/${encodeURIComponent(inviteToken)}`
       : "/dashboard";
@@ -75,95 +48,98 @@ function LoginPageInner() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md border-border bg-card">
-        <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            {inviteToken ? (
-              <UsersRound className="h-6 w-6 text-primary" />
-            ) : (
-              <MessageSquare className="h-6 w-6 text-primary" />
-            )}
+    <AuthShell>
+      <div className="mb-8 flex items-center gap-2">
+        {inviteToken ? (
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+            <UsersRound className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-xl text-foreground">
-            {inviteToken ? t('titleAccept') : t('titleWelcome')}
-          </CardTitle>
-          <CardDescription className="text-muted-foreground">
-            {inviteToken
-              ? t('descAccept')
-              : t('descWelcome')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            {error && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                {error}
-              </div>
-            )}
+        ) : (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/redezap-logo-light.png"
+              alt="RedeZap"
+              className="h-9 w-auto object-contain [[data-mode=dark]_&]:hidden"
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/redezap-logo-dark.png"
+              alt="RedeZap"
+              className="hidden h-9 w-auto object-contain [[data-mode=dark]_&]:block"
+            />
+          </>
+        )}
+      </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="email" className="text-muted-foreground">
-                {t('emailLabel')}
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder={t('emailPlaceholder')}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
-              />
-            </div>
+      <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground">
+        {inviteToken ? t("titleAccept") : t("titleWelcome")}
+      </h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {inviteToken ? t("descAccept") : t("descWelcome")}
+      </p>
 
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-muted-foreground">
-                  {t('passwordLabel')}
-                </Label>
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-primary hover:text-primary/80"
-                >
-                  {t('forgotPassword')}
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder={t('passwordPlaceholder')}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
-              />
-            </div>
+      <form onSubmit={handleLogin} className="mt-8 flex flex-col gap-4">
+        {error && (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {error}
+          </div>
+        )}
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {loading ? t('signingIn') : t('signIn')}
-            </Button>
-          </form>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="email" className="text-sm text-muted-foreground">
+            {t("emailLabel")}
+          </label>
+          <GlowInput
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder={t("emailPlaceholder")}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
 
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            {t('noAccount')}{" "}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <label htmlFor="password" className="text-sm text-muted-foreground">
+              {t("passwordLabel")}
+            </label>
             <Link
-              href={
-                inviteToken
-                  ? `/signup?invite=${encodeURIComponent(inviteToken)}`
-                  : "/signup"
-              }
-              className="text-primary hover:text-primary/80"
+              href="/forgot-password"
+              className="text-sm text-primary hover:text-primary/80"
             >
-              {t('createAccount')}
+              {t("forgotPassword")}
             </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+          <GlowInput
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            placeholder={t("passwordPlaceholder")}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+
+        <ShineButton disabled={loading}>
+          {loading ? t("signingIn") : t("signIn")}
+        </ShineButton>
+      </form>
+
+      <p className="mt-6 text-sm text-muted-foreground">
+        {t("noAccount")}{" "}
+        <Link
+          href={
+            inviteToken
+              ? `/signup?invite=${encodeURIComponent(inviteToken)}`
+              : "/signup"
+          }
+          className="font-medium text-primary hover:text-primary/80"
+        >
+          {t("createAccount")}
+        </Link>
+      </p>
+    </AuthShell>
   );
 }

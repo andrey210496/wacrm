@@ -178,6 +178,47 @@ export async function subscribeWabaToApp(
   }
 }
 
+// ============================================================
+// Coexistence — sync de dados do app WhatsApp Business (SMB App Data API)
+// ============================================================
+//
+// Após onboard COEX (número que já vive no app WhatsApp Business), a doc oficial
+// manda PULAR o /register (o número já está registrado) e disparar dois syncs
+// em até 24h para trazer contatos e histórico:
+//   POST /{phone_number_id}/smb_app_data { messaging_product, sync_type }
+//     sync_type = "smb_app_state_sync" (contatos) | "history" (histórico)
+// A Meta então entrega os dados por webhook (history / smb_app_state_sync /
+// smb_message_echoes). Idempotente o suficiente para re-disparar sem dano.
+
+export type SmbSyncType = 'smb_app_state_sync' | 'history'
+
+export interface SyncSmbAppDataArgs {
+  phoneNumberId: string
+  accessToken: string
+  syncType: SmbSyncType
+}
+
+/**
+ * Dispara um sync do app WhatsApp Business (coex). Lança com a mensagem crua da
+ * Meta em não-2xx. O chamador costuma tratar como best-effort (não bloquear a
+ * conexão), mas registrando o erro.
+ */
+export async function syncSmbAppData(args: SyncSmbAppDataArgs): Promise<void> {
+  const { phoneNumberId, accessToken, syncType } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/smb_app_data`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ messaging_product: 'whatsapp', sync_type: syncType }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 export interface GetSubscribedAppsArgs {
   wabaId: string
   accessToken: string
@@ -215,10 +256,30 @@ export async function getSubscribedApps(
 // Sending
 // ============================================================
 
+/**
+ * Monta os campos de destinatário do payload da Meta.
+ *
+ * `to` = telefone (E.164). `recipient` = BSUID (Business-Scoped User ID), usado
+ * quando o usuário escondeu o número via username (Meta 2026). A Meta aceita os
+ * dois; se ambos vierem, o telefone (`to`) tem precedência. Exige pelo menos um.
+ */
+function buildRecipient(args: { to?: string; recipient?: string }): Record<string, unknown> {
+  if (args.to) {
+    return { recipient_type: 'individual', to: args.to }
+  }
+  if (args.recipient) {
+    return { recipient_type: 'individual', recipient: args.recipient }
+  }
+  throw new Error('Envio sem destinatário: informe telefone (to) ou BSUID (recipient).')
+}
+
 export interface SendTextMessageArgs {
   phoneNumberId: string
   accessToken: string
-  to: string
+  /** Telefone (E.164). Um de `to`/`recipient` é obrigatório. */
+  to?: string
+  /** BSUID, quando o contato não tem telefone (username). */
+  recipient?: string
   text: string
   /** Meta's message_id of the message being replied to. Adds a `context` field
    *  so WhatsApp renders the new message as a reply with a quote preview. */
@@ -232,12 +293,11 @@ export interface SendTextMessageArgs {
 export async function sendTextMessage(
   args: SendTextMessageArgs
 ): Promise<MetaSendResult> {
-  const { phoneNumberId, accessToken, to, text, contextMessageId } = args
+  const { phoneNumberId, accessToken, to, recipient, text, contextMessageId } = args
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to,
+    ...buildRecipient({ to, recipient }),
     type: 'text',
     text: { body: text },
   }
@@ -264,7 +324,10 @@ export type MediaKind = 'image' | 'video' | 'document' | 'audio'
 export interface SendMediaMessageArgs {
   phoneNumberId: string
   accessToken: string
-  to: string
+  /** Telefone (E.164). Um de `to`/`recipient` é obrigatório. */
+  to?: string
+  /** BSUID, quando o contato não tem telefone (username). */
+  recipient?: string
   kind: MediaKind
   /** Public URL Meta fetches at send time. */
   link: string
@@ -290,7 +353,7 @@ export interface SendMediaMessageArgs {
 export async function sendMediaMessage(
   args: SendMediaMessageArgs,
 ): Promise<MetaSendResult> {
-  const { phoneNumberId, accessToken, to, kind, link, caption, filename, contextMessageId } = args
+  const { phoneNumberId, accessToken, to, recipient, kind, link, caption, filename, contextMessageId } = args
   if (!link) throw new Error('sendMediaMessage requires a link.')
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
 
@@ -303,8 +366,7 @@ export async function sendMediaMessage(
 
   const body: Record<string, unknown> = {
     messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to,
+    ...buildRecipient({ to, recipient }),
     type: kind,
     [kind]: media,
   }

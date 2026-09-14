@@ -13,6 +13,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { resolveImportTagIds } from '@/lib/contacts/resolve-import-tags';
 import { addContactTagAndDispatch } from '@/lib/contacts/tag-events';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
+import { getDefaultUnitId } from '@/lib/units/default-unit';
 
 /** Row select that embeds the contact's tags for serialization. */
 export const CONTACT_SELECT = '*, contact_tags(tags(*))';
@@ -74,10 +75,15 @@ export async function resolveAuditUserId(
   db: SupabaseClient,
   accountId: string
 ): Promise<string> {
+  // An account can now hold MULTIPLE whatsapp_config rows (one per unit,
+  // migration 042), so `.limit(1)` before `.maybeSingle()` — a bare
+  // `.maybeSingle()` errors on ≥2 rows. Any config owner works: the audit
+  // user is an account-level default, not a per-unit choice.
   const { data: config } = await db
     .from('whatsapp_config')
     .select('user_id')
     .eq('account_id', accountId)
+    .limit(1)
     .maybeSingle();
   const configOwner = config?.user_id as string | undefined;
   if (configOwner) return configOwner;
@@ -121,13 +127,20 @@ export async function findOrCreateContact(
     );
   }
 
-  const existing = await findExistingContact(db, accountId, sanitized);
+  // Unit for the created contact. The public API doesn't (yet) carry a
+  // unit — per-unit API keys are a future SP2 enhancement — so it targets
+  // the account's default unit (oldest active unidade). Dedup is scoped to
+  // that unit (migration 044), so the lookup is unit-scoped too.
+  const unitId = await getDefaultUnitId(db, accountId);
+
+  const existing = await findExistingContact(db, accountId, sanitized, unitId);
   if (existing) return { id: existing.id, created: false };
 
   const { data: created, error } = await db
     .from('contacts')
     .insert({
       account_id: accountId,
+      unit_id: unitId,
       user_id: auditUserId,
       phone: sanitized,
       name: input.name ?? sanitized,
@@ -141,7 +154,7 @@ export async function findOrCreateContact(
     // Lost a race against a concurrent create — the unique index
     // rejected the duplicate. Re-resolve to the winner.
     if (isUniqueViolation(error)) {
-      const raced = await findExistingContact(db, accountId, sanitized);
+      const raced = await findExistingContact(db, accountId, sanitized, unitId);
       if (raced) return { id: raced.id, created: false };
     }
     console.error('[api/v1/contacts] create error:', error);

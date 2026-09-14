@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // so the vi.mock factory below can close over it.
 const h = vi.hoisted(() => ({
   state: {
-    owned: null as { id: string } | null,
+    owned: null as { id: string; unit_id?: string } | null,
     ownedCustomField: null as { id: string } | null,
     automations: [] as Record<string, unknown>[],
     steps: [] as Record<string, unknown>[],
@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
     upsertCalls: [] as { table: string; payload: unknown }[],
     logInserts: [] as Record<string, unknown>[],
     logUpdates: [] as Record<string, unknown>[],
+    dealInserts: [] as Record<string, unknown>[],
   },
 }));
 
@@ -58,6 +59,13 @@ vi.mock("./admin-client", () => {
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
     if (table === "automation_steps") return { data: state.steps, error: null };
+    if (table === "deals") {
+      if (type === "insert") {
+        state.dealInserts.push(ops.payload as Record<string, unknown>);
+        return { data: { id: "d1" }, error: null };
+      }
+      return { data: null, error: null };
+    }
     return { data: null, error: null };
   }
 
@@ -119,6 +127,7 @@ beforeEach(() => {
   h.state.upsertCalls = [];
   h.state.logInserts = [];
   h.state.logUpdates = [];
+  h.state.dealInserts = [];
 });
 
 describe("runAutomationsForTrigger — tenant isolation", () => {
@@ -277,6 +286,30 @@ describe("update_contact_field — custom fields", () => {
   });
 });
 
+describe("create_deal — unit stamping (migration 043)", () => {
+  it("stamps the triggering contact's unit_id on the new deal", async () => {
+    // The contact belongs to unit-42; the deal must inherit it so it
+    // satisfies the NOT NULL unit_id column and stays in the right unit.
+    h.state.owned = { id: "c1", unit_id: "unit-42" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [createDealStep()];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealInserts[0]).toMatchObject({
+      unit_id: "unit-42",
+      contact_id: "c1",
+      account_id: ACCOUNT,
+    });
+  });
+});
+
 describe("send_webhook — SSRF guard (GHSA-8jqh-598v-rfxc)", () => {
   it("refuses a private / link-local destination and never calls fetch", async () => {
     const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
@@ -337,6 +370,22 @@ function updateStep() {
   };
 }
 
+function createDealStep() {
+  return {
+    id: "s1",
+    automation_id: "a1",
+    step_type: "create_deal",
+    position: 0,
+    parent_step_id: null,
+    step_config: {
+      pipeline_id: "p1",
+      stage_id: "st1",
+      title: "New deal",
+      value: 0,
+    },
+  };
+}
+
 function customStep(field: string, value: string) {
   return {
     id: "s1",
@@ -354,6 +403,7 @@ describe("triggerMatches — interactive_reply", () => {
       id: "a1",
       account_id: ACCOUNT,
       user_id: "u1",
+      unit_id: "un1",
       name: "menu step",
       trigger_type: "interactive_reply",
       trigger_config: { reply_ids },
@@ -394,6 +444,7 @@ describe("triggerMatches — tag_added", () => {
       id: "a1",
       account_id: ACCOUNT,
       user_id: "u1",
+      unit_id: "un1",
       name: "tag follow-up",
       trigger_type: "tag_added",
       trigger_config: tagId ? { tag_id: tagId } : {},

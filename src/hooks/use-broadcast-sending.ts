@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { useUnitScope } from '@/components/units/unit-scope-provider';
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit';
 import {
   BATCH_SEND_ATTEMPTS,
   batchRetryDelayMs,
@@ -159,6 +161,7 @@ async function fetchCustomValueIndex(
 
 export function useBroadcastSending(): UseBroadcastSendingReturn {
   const { accountId } = useAuth();
+  const { selectedUnitId } = useUnitScope();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -376,12 +379,23 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       }
 
       // ── Step 2: Create broadcast row ──────────────────────────────
+      // Stamp unit_id (NOT NULL since migration 043). A broadcast belongs
+      // to the operator's current unit — the topbar selection, falling
+      // back to the caller's own unit then the account default. This
+      // insert is RLS-scoped, so it must be a unit the caller can see.
       setProgress(10);
+      const unitId = await resolveOperatorUnitId(
+        supabase,
+        accountId,
+        user.id,
+        selectedUnitId,
+      );
       const { data: broadcast, error: broadcastError } = await supabase
         .from('broadcasts')
         .insert({
           user_id: user.id,
           account_id: accountId,
+          unit_id: unitId,
           name: payload.name,
           template_name: payload.template.name,
           template_language: payload.template.language ?? 'en_US',

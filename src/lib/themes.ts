@@ -14,6 +14,7 @@
  */
 
 export const THEME_IDS = [
+  "redezap",
   "violet",
   "emerald",
   "cobalt",
@@ -23,7 +24,7 @@ export const THEME_IDS = [
 
 export type ThemeId = (typeof THEME_IDS)[number];
 
-export const DEFAULT_THEME: ThemeId = "violet";
+export const DEFAULT_THEME: ThemeId = "redezap";
 
 export const STORAGE_KEY = "wacrm.theme";
 
@@ -68,9 +69,15 @@ export interface ThemeMeta {
 
 export const THEMES: ReadonlyArray<ThemeMeta> = [
   {
+    id: "redezap",
+    name: "RedeZap",
+    tagline: "O padrão — verde da marca, com autoridade.",
+    swatch: "oklch(0.57 0.14 150)",
+  },
+  {
     id: "violet",
     name: "Violet",
-    tagline: "The default — confident, slightly playful.",
+    tagline: "Confiante, levemente lúdico.",
     swatch: "oklch(0.526 0.247 293)",
   },
   {

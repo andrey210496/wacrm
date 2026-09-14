@@ -83,7 +83,19 @@ interface Member {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  /** Unit this member is locked to, or null for account-wide access. */
+  unit_id: string | null;
 }
+
+interface UnitLite {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+// Sentinel for the "all units / management" option — Base UI Select
+// needs a non-empty string value, so null can't be the item value.
+const ALL_UNITS_VALUE = '__all__';
 
 interface Invitation {
   id: string;
@@ -132,7 +144,13 @@ export function MembersTab() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [units, setUnits] = useState<UnitLite[]>([]);
   const [loading, setLoading] = useState(true);
+  // The member whose unit assignment is mid-flight (disables that row's
+  // unit Select).
+  const [pendingUnitUserId, setPendingUnitUserId] = useState<string | null>(
+    null,
+  );
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
@@ -142,10 +160,15 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
+      const [mres, ires, ures] = await Promise.all([
         fetch('/api/account/members', { cache: 'no-store' }),
         canManageMembers
           ? fetch('/api/account/invitations', { cache: 'no-store' })
+          : Promise.resolve(null),
+        // Units drive the per-member "Unidade" Select — only admins can
+        // reassign, so only they need the list.
+        canManageMembers
+          ? fetch('/api/unidades', { cache: 'no-store' })
           : Promise.resolve(null),
       ]);
 
@@ -167,6 +190,13 @@ export function MembersTab() {
         setInvitations(idata.invitations);
       } else {
         setInvitations([]);
+      }
+
+      if (ures && ures.ok) {
+        const udata = (await ures.json()) as { units: UnitLite[] };
+        setUnits(udata.units ?? []);
+      } else {
+        setUnits([]);
       }
     } catch (err) {
       console.error('[MembersTab] load error:', err);
@@ -225,6 +255,55 @@ export function MembersTab() {
       toast.error('Could not reach the server');
     } finally {
       setPendingMemberAction(null);
+    }
+  }
+
+  async function handleUnitChange(member: Member, nextUnitId: string | null) {
+    if (member.unit_id === nextUnitId) return;
+    const previous = member.unit_id;
+    setPendingUnitUserId(member.user_id);
+    // Optimistic — reflect the choice immediately, revert on failure.
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.user_id === member.user_id ? { ...m, unit_id: nextUnitId } : m,
+      ),
+    );
+    try {
+      const res = await fetch(
+        `/api/account/members/${member.user_id}/unit`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unitId: nextUnitId }),
+        },
+      );
+      if (!res.ok) {
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.user_id === member.user_id ? { ...m, unit_id: previous } : m,
+          ),
+        );
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Falha ao atribuir unidade');
+        return;
+      }
+      const unitName =
+        nextUnitId == null
+          ? 'Todas (gestão)'
+          : (units.find((u) => u.id === nextUnitId)?.name ?? 'unidade');
+      toast.success(
+        `${member.full_name || t('unnamed')} → ${unitName}`,
+      );
+    } catch (err) {
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === member.user_id ? { ...m, unit_id: previous } : m,
+        ),
+      );
+      console.error('[MembersTab] unit change error:', err);
+      toast.error('Não foi possível atribuir a unidade');
+    } finally {
+      setPendingUnitUserId(null);
     }
   }
 
@@ -410,6 +489,51 @@ export function MembersTab() {
                       inline. Items align to the start on mobile so the
                       role dropdown lines up under the avatar. */}
                   <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Unidade assignment — admin+ only. Agents/viewers are
+                        scoped to a single unit (migration 041); owner/admin
+                        see every unit, so for them it's a static label. */}
+                    {canManageMembers &&
+                      (member.role === 'agent' || member.role === 'viewer' ? (
+                        <Select
+                          value={member.unit_id ?? ALL_UNITS_VALUE}
+                          onValueChange={(v) =>
+                            v &&
+                            handleUnitChange(
+                              member,
+                              v === ALL_UNITS_VALUE ? null : v,
+                            )
+                          }
+                        >
+                          <SelectTrigger
+                            className="w-40 bg-muted border-border text-foreground"
+                            disabled={pendingUnitUserId === member.user_id}
+                            aria-label="Unidade"
+                          >
+                            <SelectValue>
+                              {member.unit_id
+                                ? (units.find((u) => u.id === member.unit_id)
+                                    ?.name ?? 'Unidade')
+                                : 'Todas (gestão)'}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={ALL_UNITS_VALUE}>
+                              Todas (gestão)
+                            </SelectItem>
+                            {units.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.name}
+                                {!u.active ? ' (inativa)' : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="hidden text-xs text-muted-foreground sm:inline">
+                          Todas (gestão)
+                        </span>
+                      ))}
+
                     {/* Role display / editor. Inline Select is admin+
                         only AND not allowed on the owner row (owner
                         changes go through transfer, which lands later). */}

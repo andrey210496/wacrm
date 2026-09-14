@@ -753,6 +753,9 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+      // The send find-or-creates a conversation in the contact's unit, so
+      // scope the picker to that unit's templates (migration 048).
+      unitId={contact?.unit_id ?? null}
     />
     </>
   );

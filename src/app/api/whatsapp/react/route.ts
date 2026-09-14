@@ -66,7 +66,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(phone)')
+      .select('id, account_id, unit_id, contact:contacts(phone)')
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -88,11 +88,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
+    // WhatsApp config for THIS conversation's unit (migration 042,
+    // UNIQUE(unit_id)) so the reaction is sent FROM that unit's WhatsApp
+    // number. `account_id` stays as defense-in-depth; `.limit(1)` guards a
+    // stray duplicate before `.single()`.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('phone_number_id, access_token')
       .eq('account_id', accountId)
+      .eq('unit_id', conversation.unit_id)
+      .limit(1)
       .single();
 
     if (configError || !config) {

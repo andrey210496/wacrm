@@ -7,6 +7,7 @@ import {
 } from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
+import { getDefaultUnitId } from '@/lib/units/default-unit'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
 
 /**
@@ -127,7 +128,7 @@ function extractSampleValues(
   return sv
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     // Syncing rewrites the account-wide template catalog, which is
     // settings-class data: `canEditSettings` and the message_templates
@@ -135,10 +136,46 @@ export async function POST() {
     // Resolving account_id off the profile only proved membership.
     const { supabase, accountId, userId } = await requireRole('admin')
 
+    // Templates are per-unit: syncing pulls the template set of ONE
+    // unit's WABA (migration 048). The client sends which unit; no unit
+    // given → the account's default (oldest) unit. A JSON body is
+    // optional, so tolerate a missing/empty one.
+    let requestedUnitId: string | null = null
+    try {
+      const body = (await request.json()) as { unit_id?: unknown } | null
+      if (body && typeof body.unit_id === 'string') requestedUnitId = body.unit_id
+    } catch {
+      // No/invalid JSON body — fall back to the default unit below.
+    }
+
+    let unitId: string
+    if (requestedUnitId) {
+      const { data: unit, error: unitErr } = await supabase
+        .from('unidades')
+        .select('id')
+        .eq('id', requestedUnitId)
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (unitErr || !unit) {
+        return NextResponse.json(
+          { error: 'Invalid unit for this account.' },
+          { status: 400 },
+        )
+      }
+      unitId = unit.id
+    } else {
+      unitId = await getDefaultUnitId(supabase, accountId)
+    }
+
+    // Config for the chosen unit's WABA (migration 042, UNIQUE(unit_id)).
+    // The templates pulled below live on THIS WABA. `.limit(1)` guards a
+    // stray duplicate before `.single()`.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+      .eq('unit_id', unitId)
+      .limit(1)
       .single()
 
     if (configError || !config) {
@@ -222,6 +259,10 @@ export async function POST() {
         // route. account_id is NOT NULL on message_templates
         // post-017, so an INSERT without it errors.
         account_id: accountId,
+        // Owning unidade — the WABA these templates were pulled from
+        // (migration 048, NOT NULL). Part of the new unique index
+        // (account_id, unit_id, name, language).
+        unit_id: unitId,
         user_id: userId,
         name: t.name,
         category: normalizeCategory(t.category),
@@ -239,10 +280,14 @@ export async function POST() {
         updated_at: new Date().toISOString(),
       }
 
+      // Match on the new uniqueness key (account_id, unit_id, name,
+      // language) so a same-named template in another unit isn't
+      // clobbered — the sync only touches THIS unit's rows.
       const { data: existing, error: lookupErr } = await supabase
         .from('message_templates')
         .select('id')
         .eq('account_id', accountId)
+        .eq('unit_id', unitId)
         .eq('name', t.name)
         .eq('language', t.language)
         .maybeSingle()
