@@ -11,6 +11,7 @@ import {
   LayoutTemplate,
   CornerDownLeft,
   Sparkles,
+  Smartphone,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -275,6 +276,16 @@ export function MessageBubble({
             >
               <Sparkles className="h-2.5 w-2.5" />
               {t("aiBadge")}
+            </span>
+          )}
+          {/* Coex: mensagem enviada pelo app WhatsApp Business (não pelo CRM). */}
+          {message.via_business_app && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-full bg-primary-foreground/20 px-1.5 py-px text-[9px] font-semibold uppercase leading-none tracking-wide text-primary-foreground"
+              title="Enviada pelo app WhatsApp Business"
+            >
+              <Smartphone className="h-2.5 w-2.5" />
+              pelo app
             </span>
           )}
           <span

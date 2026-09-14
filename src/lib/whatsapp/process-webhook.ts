@@ -15,6 +15,11 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import {
+  parseMessageEchoes,
+  parseHistory,
+  parseAppStateSync,
+} from '@/lib/whatsapp/coex-webhooks'
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,6 +137,22 @@ export async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           { field: change.field, value: change.value as unknown },
           supabaseAdmin(),
         )
+        continue
+      }
+
+      // Coexistence (Fase 2): mensagens do app WhatsApp Business + histórico +
+      // contatos. Chegam com change.field próprio e value de forma diferente —
+      // handlers dedicados, cada um resolve o config por phone_number_id.
+      if (change.field === 'smb_message_echoes') {
+        await handleMessageEchoes(change.value as unknown)
+        continue
+      }
+      if (change.field === 'history') {
+        await handleHistory(change.value as unknown)
+        continue
+      }
+      if (change.field === 'smb_app_state_sync') {
+        await handleAppStateSync(change.value as unknown)
         continue
       }
 
@@ -1056,6 +1077,171 @@ export async function ingestNormalizedInbound(params: {
     content_type: contentType,
     text: content.text,
   })
+}
+
+// ============================================================
+// Coexistence (Fase 2) — ingestão de echoes / history / contatos.
+//
+// Handlers best-effort: um item ruim não derruba o webhook (a Meta precisa do
+// 200). Insert idempotente por (conversation_id, message_id) cobre re-entrega +
+// chunks de history. NADA de automação/fluxo/IA/webhook público nem bump de
+// não-lida — é backfill / espelho, não inbound fresco. Mídia NÃO é reprocessada:
+// gravamos como texto (legenda/rótulo), pois a mídia antiga pode ter expirado.
+// ============================================================
+
+/** Resolve o whatsapp_config (conta/unidade/dono) por phone_number_id. */
+async function resolveCoexConfig(
+  phoneNumberId: string | undefined,
+): Promise<{ account_id: string; unit_id: string; user_id: string } | null> {
+  if (!phoneNumberId) return null
+  const { data, error } = await supabaseAdmin()
+    .from('whatsapp_config')
+    .select('account_id, unit_id, user_id')
+    .eq('phone_number_id', phoneNumberId)
+    .limit(1)
+    .maybeSingle()
+  if (error || !data) {
+    if (error) console.error('[coex] config lookup falhou:', error.message)
+    return null
+  }
+  return data
+}
+
+/** Insere uma mensagem coex (idempotente) e devolve true se foi novidade. */
+async function insertCoexMessage(params: {
+  conversationId: string
+  senderType: 'agent' | 'customer'
+  contentText: string | null
+  metaId: string
+  status: string
+  viaBusinessApp: boolean
+  timestamp: number | null
+}): Promise<boolean> {
+  const createdAt =
+    params.timestamp && params.timestamp > 0
+      ? new Date(params.timestamp * 1000).toISOString()
+      : new Date().toISOString()
+  const { data, error } = await supabaseAdmin()
+    .from('messages')
+    .upsert(
+      {
+        conversation_id: params.conversationId,
+        sender_type: params.senderType,
+        // Mídia não reprocessada no coex v1 → tudo como texto (legenda/rótulo).
+        content_type: 'text',
+        content_text: params.contentText,
+        message_id: params.metaId,
+        status: params.status,
+        via_business_app: params.viaBusinessApp,
+        created_at: createdAt,
+      },
+      { onConflict: 'conversation_id,message_id', ignoreDuplicates: true },
+    )
+    .select('id')
+  if (error) {
+    console.error('[coex] insert de mensagem falhou:', error.message)
+    return false
+  }
+  return Boolean(data && data.length > 0)
+}
+
+/** Atualiza o resumo da conversa (sem bump de não-lida). Best-effort. */
+async function touchConversationSummary(conversationId: string, text: string | null, timestamp: number | null) {
+  const at =
+    timestamp && timestamp > 0 ? new Date(timestamp * 1000).toISOString() : new Date().toISOString()
+  await supabaseAdmin()
+    .from('conversations')
+    .update({ last_message_text: text || '[mídia]', last_message_at: at, updated_at: new Date().toISOString() })
+    .eq('id', conversationId)
+}
+
+async function handleMessageEchoes(value: unknown): Promise<void> {
+  const v = value as { metadata?: { phone_number_id?: string } }
+  const config = await resolveCoexConfig(v.metadata?.phone_number_id)
+  if (!config) return
+  const echoes = parseMessageEchoes(value)
+  for (const e of echoes) {
+    const contactOutcome = await findOrCreateContact(config.account_id, config.unit_id, config.user_id, {
+      phone: e.contactPhone,
+      bsuid: null,
+      username: null,
+      name: '',
+    })
+    if (!contactOutcome) continue
+    const convResult = await findOrCreateConversation(config.account_id, config.unit_id, config.user_id, contactOutcome.contact.id)
+    if (!convResult) continue
+    const inserted = await insertCoexMessage({
+      conversationId: convResult.conversation.id,
+      senderType: 'agent',
+      contentText: e.contentText,
+      metaId: e.metaId,
+      status: 'sent',
+      viaBusinessApp: true,
+      timestamp: e.timestamp,
+    })
+    if (inserted) await touchConversationSummary(convResult.conversation.id, e.contentText, e.timestamp)
+  }
+}
+
+async function handleHistory(value: unknown): Promise<void> {
+  const v = value as { metadata?: { phone_number_id?: string; display_phone_number?: string } }
+  const config = await resolveCoexConfig(v.metadata?.phone_number_id)
+  if (!config) return
+  const businessPhone = v.metadata?.display_phone_number ?? ''
+  const msgs = parseHistory(value, businessPhone)
+
+  // Agrupa por telefone do contato: resolve contato+conversa uma vez por thread.
+  const byPhone = new Map<string, typeof msgs>()
+  for (const m of msgs) {
+    const arr = byPhone.get(m.contactPhone) ?? []
+    arr.push(m)
+    byPhone.set(m.contactPhone, arr)
+  }
+
+  for (const [phone, items] of byPhone) {
+    const contactOutcome = await findOrCreateContact(config.account_id, config.unit_id, config.user_id, {
+      phone,
+      bsuid: null,
+      username: null,
+      name: '',
+    })
+    if (!contactOutcome) continue
+    const convResult = await findOrCreateConversation(config.account_id, config.unit_id, config.user_id, contactOutcome.contact.id)
+    if (!convResult) continue
+
+    let newest: { text: string | null; ts: number | null } | null = null
+    for (const m of items) {
+      await insertCoexMessage({
+        conversationId: convResult.conversation.id,
+        senderType: m.direction === 'out' ? 'agent' : 'customer',
+        contentText: m.contentText,
+        metaId: m.metaId,
+        status: m.status,
+        viaBusinessApp: m.direction === 'out',
+        timestamp: m.timestamp,
+      })
+      if (!newest || (m.timestamp ?? 0) > (newest.ts ?? 0)) {
+        newest = { text: m.contentText, ts: m.timestamp }
+      }
+    }
+    // Resumo = mensagem mais recente do thread (sem marcar não-lida).
+    if (newest) await touchConversationSummary(convResult.conversation.id, newest.text, newest.ts)
+  }
+}
+
+async function handleAppStateSync(value: unknown): Promise<void> {
+  const v = value as { metadata?: { phone_number_id?: string } }
+  const config = await resolveCoexConfig(v.metadata?.phone_number_id)
+  if (!config) return
+  const contacts = parseAppStateSync(value)
+  for (const c of contacts) {
+    await findOrCreateContact(config.account_id, config.unit_id, config.user_id, {
+      phone: c.phone,
+      bsuid: null,
+      username: null,
+      name: c.name ?? '',
+    })
+  }
 }
 
 async function parseMessageContent(

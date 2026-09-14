@@ -268,6 +268,12 @@ export interface Message {
    * badge in the inbox. Migration 033.
    */
   ai_generated?: boolean;
+  /**
+   * True quando a mensagem veio do app WhatsApp Business via Coexistence
+   * (echo de mensagem que o cliente digitou no app, ou history do lado do
+   * negócio). Dirige o badge "pelo app" no inbox. Migration 060.
+   */
+  via_business_app?: boolean;
 }
 
 export type ReactionActor = 'customer' | 'agent';
