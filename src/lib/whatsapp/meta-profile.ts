@@ -132,34 +132,63 @@ export async function uploadProfilePhoto(
 }
 
 // ============================================================
-// Username (Username API — recurso NOVO, rollout 2026, atrás de flag)
+// Username (Username API — POST/GET/DELETE /<phone_number_id>/username)
 // ============================================================
 
 export interface SetUsernameArgs {
   phoneNumberId: string
   accessToken: string
   username: string
+  /** `none` (default) ou `force_transfer` pra puxar um username já reservado. */
+  transferAction?: 'none' | 'force_transfer'
 }
 
 /**
- * Reserva/define o username do número. A Username API é nova (rollout gradual
- * desde 2026) e o caminho/campo exatos NÃO puderam ser confirmados no build —
- * marcado `// CONFIRMAR NA META`. Fica atrás de flag; se a Meta ainda não
- * liberou pra esse número, o erro cru dela sobe pra UI.
+ * Define/reserva o username do número (Username API). Endpoint confirmado na doc
+ * oficial da Meta (Business-scoped user IDs / Username API, verificado 2026-09-13):
+ *   POST /<PHONE_NUMBER_ID>/username  body { username, transfer_action? }
+ * O erro cru da Meta sobe pra UI.
  */
 export async function setUsername(args: SetUsernameArgs): Promise<void> {
-  const { phoneNumberId, accessToken, username } = args
-  // CONFIRMAR NA META: caminho/campo exatos da Username API.
-  const url = `${META_API_BASE}/${phoneNumberId}`
+  const { phoneNumberId, accessToken, username, transferAction } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/username`
+  const body: Record<string, unknown> = { username }
+  if (transferAction) body.transfer_action = transferAction
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ messaging_product: 'whatsapp', username }),
+    body: JSON.stringify(body),
   })
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }
+}
+
+export type UsernameStatus = {
+  username?: string
+  /** `approved` (visível) | `reserved` (reservado, ainda não visível). */
+  status?: string
+}
+
+/**
+ * Lê o username atual do número + status. Endpoint oficial:
+ *   GET /<PHONE_NUMBER_ID>/username → { username?, status? }
+ * Sem username definido, a Meta omite o campo → devolvemos {}.
+ */
+export async function getUsername(
+  phoneNumberId: string,
+  accessToken: string,
+): Promise<UsernameStatus> {
+  const url = `${META_API_BASE}/${phoneNumberId}/username`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = (await response.json()) as UsernameStatus
+  return { username: data.username, status: data.status }
 }

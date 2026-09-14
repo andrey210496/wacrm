@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { decrypt } from "@/lib/whatsapp/encryption";
-import { getBusinessProfile, updateBusinessProfile } from "@/lib/whatsapp/meta-profile";
+import { getBusinessProfile, updateBusinessProfile, getUsername } from "@/lib/whatsapp/meta-profile";
 import { validateProfileFields, type BusinessProfileFields } from "@/lib/whatsapp/profile-validate";
 
 /**
@@ -80,7 +80,20 @@ export async function GET(request: Request) {
 
   try {
     const profile = await getBusinessProfile({ phoneNumberId: creds.phoneNumberId, accessToken: creds.accessToken });
-    return NextResponse.json({ connected: true, profile, username_enabled: usernameEnabled });
+    // Username atual (só com a flag on). Best-effort: se a Meta recusar a
+    // leitura, não derruba o perfil — devolve null e a UI segue.
+    let username: string | null = null;
+    let usernameStatus: string | null = null;
+    if (usernameEnabled) {
+      try {
+        const u = await getUsername(creds.phoneNumberId, creds.accessToken);
+        username = u.username ?? null;
+        usernameStatus = u.status ?? null;
+      } catch (e) {
+        console.warn("[whatsapp/profile GET] leitura de username falhou:", e instanceof Error ? e.message : e);
+      }
+    }
+    return NextResponse.json({ connected: true, profile, username_enabled: usernameEnabled, username, username_status: usernameStatus });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
     console.error("[whatsapp/profile GET] Meta error:", message);

@@ -77,6 +77,8 @@ export function PerfilWhatsappPanel() {
   // Username (atrás de flag).
   const [usernameEnabled, setUsernameEnabled] = useState(false);
   const [username, setUsername] = useState('');
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+  const [usernameStatus, setUsernameStatus] = useState<string | null>(null);
   const [savingUsername, setSavingUsername] = useState(false);
   const [usernameMsg, setUsernameMsg] = useState<string | null>(null);
 
@@ -121,9 +123,14 @@ export function PerfilWhatsappPanel() {
           profile?: Profile;
           message?: string;
           username_enabled?: boolean;
+          username?: string | null;
+          username_status?: string | null;
         }>(r);
         const d = p.data ?? {};
         setUsernameEnabled(!!d.username_enabled);
+        setCurrentUsername(d.username ?? null);
+        setUsernameStatus(d.username_status ?? null);
+        setUsername(d.username ?? '');
         if (p.ok && d.connected && d.profile) {
           applyProfile(d.profile);
           setLoadedOk(true);
@@ -212,6 +219,7 @@ export function PerfilWhatsappPanel() {
       });
       const p = await parseApiResponse(r);
       setUsernameMsg(p.ok ? 'Username definido. ✅' : p.error);
+      if (p.ok) await load(unitId);
     } catch {
       setUsernameMsg('Falha de rede ao definir o username.');
     } finally {
@@ -386,10 +394,25 @@ export function PerfilWhatsappPanel() {
               {/* Username (só com a flag ligada) */}
               {usernameEnabled && (
                 <div className="mt-2 rounded-lg border border-border bg-muted/40 p-4">
-                  <h4 className="text-xs font-semibold text-foreground">Username do WhatsApp</h4>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-xs font-semibold text-foreground">Username do WhatsApp</h4>
+                    {currentUsername && (
+                      <span
+                        className={
+                          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ' +
+                          (usernameStatus === 'approved'
+                            ? 'border-emerald-700/50 bg-emerald-950/30 text-emerald-300'
+                            : 'border-amber-700/50 bg-amber-950/30 text-amber-300')
+                        }
+                      >
+                        @{currentUsername}
+                        {usernameStatus ? ` · ${usernameStatus === 'approved' ? 'ativo' : 'reservado'}` : ''}
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    Recurso novo da Meta, em liberação gradual. Letras minúsculas (a-z),
-                    números, ponto e underscore; de 3 a 30 caracteres.
+                    Letras minúsculas (a-z), números, ponto e underscore; de 3 a 30 caracteres.
+                    &quot;Reservado&quot; fica visível aos clientes quando a Meta liberar o recurso.
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <input

@@ -15,8 +15,8 @@ Status: CONSTRUÍDO — tsc 0, build verde, 28 testes passando (meta-profile 8 +
 ## Deploy / operação
 - Sem migration (usa `whatsapp_config` já existente).
 - Foto precisa de `META_APP_ID` no env da instância (mesma var do header de template).
-- Username: manter `PROFILE_USERNAME_ENABLED` **desligado** até confirmar endpoint na doc da Meta.
-- Todos os nomes de campo/endpoint/limite estão marcados `// CONFIRMAR NA META` e centralizados; erro cru da Meta sobe pra UI, correção num ponto só.
+- Username: **CONFIRMADO na doc oficial da Meta (2026-09-13)** e liberado pela Meta. Endpoint `POST/GET/DELETE /<PHONE_NUMBER_ID>/username` (body `{ username, transfer_action? }`; GET devolve `{ username, status: approved|reserved }`). `setUsername` corrigido (antes estava `POST /<id>` com `messaging_product` — errado) + `getUsername` novo; o GET do perfil traz o username atual + status, e a UI mostra o badge. **Ligar `PROFILE_USERNAME_ENABLED=true`.**
+- Demais nomes de campo/limite do perfil seguem marcados `// CONFIRMAR NA META` e centralizados; erro cru da Meta sobe pra UI, correção num ponto só.
 
 ## Objetivo
 Painel em Config → WhatsApp, por unidade, pra ver/editar o **perfil do WhatsApp

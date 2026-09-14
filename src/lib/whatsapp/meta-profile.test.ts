@@ -3,6 +3,7 @@ import {
   getBusinessProfile,
   updateBusinessProfile,
   setUsername,
+  getUsername,
 } from './meta-profile';
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -96,7 +97,7 @@ describe('meta-profile', () => {
   });
 
   describe('setUsername', () => {
-    it('posta username + messaging_product', async () => {
+    it('posta em /username com body { username } (sem messaging_product)', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string, init?: RequestInit) => {
@@ -105,14 +106,49 @@ describe('meta-profile', () => {
         }),
       );
       await setUsername({ phoneNumberId: 'PN', accessToken: 't', username: 'pure.pilates' });
+      expect(calls[0].url).toContain('/PN/username');
       const body = JSON.parse((calls[0].init?.body as string) ?? '{}');
       expect(body.username).toBe('pure.pilates');
-      expect(body.messaging_product).toBe('whatsapp');
+      expect(body.messaging_product).toBeUndefined();
+      expect(body.transfer_action).toBeUndefined();
     });
 
-    it('propaga o erro cru da Meta (ex.: recurso não liberado)', async () => {
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { message: 'Unsupported' } }, false, 400)));
-      await expect(setUsername({ phoneNumberId: 'PN', accessToken: 't', username: 'abc' })).rejects.toThrow('Unsupported');
+    it('inclui transfer_action quando pedido', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push({ url, init });
+          return jsonResponse({ success: true });
+        }),
+      );
+      await setUsername({ phoneNumberId: 'PN', accessToken: 't', username: 'x', transferAction: 'force_transfer' });
+      const body = JSON.parse((calls[0].init?.body as string) ?? '{}');
+      expect(body.transfer_action).toBe('force_transfer');
+    });
+
+    it('propaga o erro cru da Meta', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { message: 'Username taken' } }, false, 400)));
+      await expect(setUsername({ phoneNumberId: 'PN', accessToken: 't', username: 'abc' })).rejects.toThrow('Username taken');
+    });
+  });
+
+  describe('getUsername', () => {
+    it('lê username + status de /username', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push({ url, init });
+          return jsonResponse({ username: 'pure.pilates', status: 'reserved' });
+        }),
+      );
+      const out = await getUsername('PN', 't');
+      expect(calls[0].url).toContain('/PN/username');
+      expect(out).toEqual({ username: 'pure.pilates', status: 'reserved' });
+    });
+
+    it('sem username definido → {}', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({})));
+      expect(await getUsername('PN', 't')).toEqual({ username: undefined, status: undefined });
     });
   });
 });
