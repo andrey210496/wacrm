@@ -154,7 +154,15 @@ export function CoexConnectButton({
           }
         })();
       },
-      { config_id: config.configId, response_type: 'code', override_default_response_type: true, extras: { setup: {}, sessionInfoVersion: '3' } },
+      {
+        config_id: config.configId,
+        response_type: 'code',
+        override_default_response_type: true,
+        // featureType = whatsapp_business_app_onboarding é o que troca o fluxo
+        // PADRÃO (escolher/criar número da WABA) pelo de COEXISTENCE (conectar a
+        // conta existente do app WhatsApp Business). Doc oficial da Meta.
+        extras: { featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
+      },
     );
   }, [unitId, config, onConnected]);
 
