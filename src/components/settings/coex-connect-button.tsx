@@ -158,10 +158,12 @@ export function CoexConnectButton({
         config_id: config.configId,
         response_type: 'code',
         override_default_response_type: true,
-        // featureType = whatsapp_business_app_onboarding é o que troca o fluxo
-        // PADRÃO (escolher/criar número da WABA) pelo de COEXISTENCE (conectar a
-        // conta existente do app WhatsApp Business). Doc oficial da Meta.
-        extras: { featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
+        // Embedded Signup v4: o coex é ligado pelo "Tipo de Recurso" DA
+        // CONFIGURAÇÃO no painel da Meta (não pelo extras). Aqui o extras só
+        // carrega a versão + sessionInfoVersion, exatamente como o painel gera
+        // pra esta config. sessionInfoVersion 3 = precisamos do session logging
+        // (o listener de WA_EMBEDDED_SIGNUP acima) pra pegar phone/waba id.
+        extras: { sessionInfoVersion: '3', version: 'v4' },
       },
     );
   }, [unitId, config, onConnected]);
