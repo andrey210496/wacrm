@@ -37,7 +37,11 @@ function parseFinish(data: unknown): { phoneNumberId: string; wabaId: string } |
   }
   if (!obj || typeof obj !== 'object') return null;
   const m = obj as { type?: string; event?: string; data?: { phone_number_id?: string; waba_id?: string } };
-  if (m.type !== 'WA_EMBEDDED_SIGNUP' || m.event !== 'FINISH') return null;
+  // O coex termina com um evento PRÓPRIO (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING),
+  // diferente do FINISH do fluxo padrão. Aceitamos os dois — ambos trazem
+  // phone_number_id + waba_id em `data`.
+  const isFinish = m.event === 'FINISH' || m.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
+  if (m.type !== 'WA_EMBEDDED_SIGNUP' || !isFinish) return null;
   const pn = m.data?.phone_number_id;
   const wa = m.data?.waba_id;
   if (!pn || !wa) return null;
@@ -159,11 +163,10 @@ export function CoexConnectButton({
         response_type: 'code',
         override_default_response_type: true,
         // Embedded Signup v4: o coex é ligado pelo "Tipo de Recurso" DA
-        // CONFIGURAÇÃO no painel da Meta (não pelo extras). Aqui o extras só
-        // carrega a versão + sessionInfoVersion, exatamente como o painel gera
-        // pra esta config. sessionInfoVersion 3 = precisamos do session logging
-        // (o listener de WA_EMBEDDED_SIGNUP acima) pra pegar phone/waba id.
-        extras: { sessionInfoVersion: '3', version: 'v4' },
+        // CONFIGURAÇÃO no painel da Meta (não por parâmetro de código). O extras
+        // segue o formato comprovado da doc/central: setup:{} + sessionInfoVersion
+        // 3 (session logging → o listener de WA_EMBEDDED_SIGNUP pega phone/waba id).
+        extras: { setup: {}, sessionInfoVersion: '3' },
       },
     );
   }, [unitId, config, onConnected]);
