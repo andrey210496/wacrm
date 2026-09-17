@@ -20,6 +20,7 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { captureError } from '@/lib/logs/capture';
 
 import {
   sendTextMessage,
@@ -607,6 +608,12 @@ export async function sendMessageToConversation(
 
   if (msgError) {
     console.error('[send-message] error inserting sent message:', msgError);
+    void captureError({
+      feature: 'send-message',
+      message: `mensagem enviada à Meta mas FALHOU ao salvar no banco: ${msgError.message}`,
+      errorType: msgError.code ?? 'DbError',
+      context: { conversationId, channel: channelUsed, waMessageId },
+    });
     throw new SendMessageError(
       'db_error',
       `Message sent to Meta but failed to save to DB: ${msgError.message}`,

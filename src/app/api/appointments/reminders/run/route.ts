@@ -16,6 +16,7 @@ import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { sendMessageToConversation } from "@/lib/whatsapp/send-message";
 import { resolveConversationForContact } from "@/lib/whatsapp/resolve-conversation";
 import { dueOffsets, renderReminder, effectiveReminders } from "@/lib/scheduling/reminders";
+import { captureError } from "@/lib/logs/capture";
 import type { SchedulingConfig } from "@/lib/scheduling/config";
 
 export const dynamic = "force-dynamic";
@@ -177,6 +178,12 @@ export async function POST(request: Request) {
           const msg = e instanceof Error ? e.message : String(e);
           errors++;
           console.warn(`[reminders] envio falhou appt=${appt.id} off=${off}: ${msg}`);
+          void captureError({
+            feature: "reminders/run",
+            message: `envio de lembrete falhou: ${msg}`,
+            errorType: "ReminderSendError",
+            context: { appointmentId: appt.id, offsetMin: off, unitId: cfg.unit_id },
+          });
           await admin
             .from("appointment_reminders_sent")
             .update({ status: "failed", error: msg.slice(0, 300), updated_at: new Date().toISOString() })

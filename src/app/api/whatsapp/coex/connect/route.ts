@@ -14,6 +14,7 @@ import { encrypt } from "@/lib/whatsapp/encryption";
 import { exchangeCodeForToken } from "@/lib/whatsapp/embedded-signup";
 import { subscribeWabaToApp, syncSmbAppData, getWabaPhoneNumbers, registerPhoneNumber } from "@/lib/whatsapp/meta-api";
 import { reportNumberStatus } from "@/lib/whatsapp/report-number-status";
+import { captureError } from "@/lib/logs/capture";
 
 function admin() {
   return createAdminClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -130,6 +131,12 @@ export async function POST(request: Request) {
     } catch (err) {
       registrationError = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
       console.error("[coex/connect] register (oficial) falhou:", registrationError);
+      void captureError({
+        feature: "coex/connect",
+        message: `register (oficial) falhou: ${registrationError}`,
+        errorType: "MetaRegisterError",
+        context: { unitId, phoneNumberId, wabaId },
+      });
     }
   }
 
@@ -191,6 +198,12 @@ export async function POST(request: Request) {
       .eq("unit_id", unitId);
     if (error) {
       console.error("[coex/connect] update falhou:", error);
+      void captureError({
+        feature: "coex/connect",
+        message: `update do whatsapp_config falhou: ${error.message}`,
+        errorType: error.code ?? "DbError",
+        context: { unitId, mode, phoneNumberId },
+      });
       return NextResponse.json({ error: "Falha ao salvar a configuração." }, { status: 500 });
     }
   } else {
@@ -199,6 +212,12 @@ export async function POST(request: Request) {
       .insert({ account_id: ctx.accountId, unit_id: unitId, user_id: ctx.userId, ...row });
     if (error) {
       console.error("[coex/connect] insert falhou:", error);
+      void captureError({
+        feature: "coex/connect",
+        message: `insert do whatsapp_config falhou: ${error.message}`,
+        errorType: error.code ?? "DbError",
+        context: { unitId, mode, phoneNumberId },
+      });
       return NextResponse.json({ error: "Falha ao salvar a configuração." }, { status: 500 });
     }
   }
