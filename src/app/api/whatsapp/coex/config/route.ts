@@ -21,6 +21,6 @@ export async function GET() {
     enabled: Boolean(appId && configId),
     // Marcador de build: confirma qual versão do código está NO AR (pra
     // distinguir "rebuild não pegou" de "parâmetro errado"). Bater com o commit.
-    build: "coex-bothcasings+wabaresolve",
+    build: "coex-featureType=coexistence",
   });
 }

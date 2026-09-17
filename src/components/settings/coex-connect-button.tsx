@@ -162,16 +162,11 @@ export function CoexConnectButton({
         config_id: config.configId,
         response_type: 'code',
         override_default_response_type: true,
-        // Coexistence: a doc de coex mostra `featureType` (camelCase); a doc da
-        // v4 cita `feature_type` (snake_case). Mandamos AS DUAS (chaves extras
-        // desconhecidas são ignoradas pelo SDK) pra não depender de adivinhar a
-        // grafia. sessionInfoVersion 3 = session logging (o listener pega o waba_id).
-        extras: {
-          setup: {},
-          featureType: 'whatsapp_business_app_onboarding',
-          feature_type: 'whatsapp_business_app_onboarding',
-          sessionInfoVersion: '3',
-        },
+        // Coexistence: o VALOR correto do featureType é 'coexistence' (conectar
+        // número existente) — NÃO 'whatsapp_business_app_onboarding' (valor que a
+        // doc mostrava e não funciona). Confirmado num sistema em produção com o
+        // mesmo app. sessionInfoVersion 3 = session logging (o listener pega o waba_id).
+        extras: { setup: {}, featureType: 'coexistence', sessionInfoVersion: '3' },
       },
     );
   }, [unitId, config, onConnected]);
