@@ -30,14 +30,20 @@ export function CatalogDialog({ open, onOpenChange, unitId, accountId, onChanged
   const [tab, setTab] = useState<"services" | "resources">("services");
   const [services, setServices] = useState<Service[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [{ data: s }, { data: r }] = await Promise.all([
-      supabase.from("services").select("*").eq("unit_id", unitId).order("name"),
-      supabase.from("resources").select("*").eq("unit_id", unitId).order("name"),
-    ]);
-    setServices((s ?? []) as Service[]);
-    setResources((r ?? []) as Resource[]);
+    setLoading(true);
+    try {
+      const [{ data: s }, { data: r }] = await Promise.all([
+        supabase.from("services").select("*").eq("unit_id", unitId).order("name"),
+        supabase.from("resources").select("*").eq("unit_id", unitId).order("name"),
+      ]);
+      setServices((s ?? []) as Service[]);
+      setResources((r ?? []) as Resource[]);
+    } finally {
+      setLoading(false);
+    }
   }, [supabase, unitId]);
 
   useEffect(() => {
@@ -72,6 +78,7 @@ export function CatalogDialog({ open, onOpenChange, unitId, accountId, onChanged
         {tab === "services" ? (
           <ServicesTab
             services={services}
+            loading={loading}
             onChanged={() => {
               load();
               onChanged();
@@ -82,6 +89,7 @@ export function CatalogDialog({ open, onOpenChange, unitId, accountId, onChanged
         ) : (
           <ResourcesTab
             resources={resources}
+            loading={loading}
             onChanged={() => {
               load();
               onChanged();
@@ -97,11 +105,13 @@ export function CatalogDialog({ open, onOpenChange, unitId, accountId, onChanged
 
 function ServicesTab({
   services,
+  loading,
   onChanged,
   unitId,
   accountId,
 }: {
   services: Service[];
+  loading: boolean;
   onChanged: () => void;
   unitId: string;
   accountId: string;
@@ -166,7 +176,8 @@ function ServicesTab({
       </div>
 
       <ul className="divide-y divide-border rounded-lg border border-border">
-        {services.length === 0 && <li className="p-3 text-sm text-muted-foreground">Nenhum serviço ainda.</li>}
+        {loading && services.length === 0 && <li className="p-3 text-sm text-muted-foreground">Carregando…</li>}
+        {!loading && services.length === 0 && <li className="p-3 text-sm text-muted-foreground">Nenhum serviço ainda.</li>}
         {services.map((s) => (
           <li key={s.id} className="flex items-center justify-between p-3">
             <span className="flex items-center gap-2 text-sm text-foreground">
@@ -185,11 +196,13 @@ function ServicesTab({
 
 function ResourcesTab({
   resources,
+  loading,
   onChanged,
   unitId,
   accountId,
 }: {
   resources: Resource[];
+  loading: boolean;
   onChanged: () => void;
   unitId: string;
   accountId: string;
@@ -248,7 +261,8 @@ function ResourcesTab({
       </div>
 
       <ul className="divide-y divide-border rounded-lg border border-border">
-        {resources.length === 0 && <li className="p-3 text-sm text-muted-foreground">Nenhum recurso ainda.</li>}
+        {loading && resources.length === 0 && <li className="p-3 text-sm text-muted-foreground">Carregando…</li>}
+        {!loading && resources.length === 0 && <li className="p-3 text-sm text-muted-foreground">Nenhum recurso ainda.</li>}
         {resources.map((r) => (
           <li key={r.id} className="flex items-center justify-between p-3">
             <span className="text-sm text-foreground">

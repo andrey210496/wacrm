@@ -153,6 +153,7 @@ export function MembersTab() {
   );
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
@@ -334,6 +335,8 @@ export function MembersTab() {
   }
 
   async function handleRevoke(invite: Invitation) {
+    if (revokingId) return; // evita duplo-clique → dois DELETE
+    setRevokingId(invite.id);
     try {
       const res = await fetch(`/api/account/invitations/${invite.id}`, {
         method: 'DELETE',
@@ -348,6 +351,8 @@ export function MembersTab() {
     } catch (err) {
       console.error('[MembersTab] revoke error:', err);
       toast.error('Could not reach the server');
+    } finally {
+      setRevokingId(null);
     }
   }
 
@@ -671,9 +676,14 @@ export function MembersTab() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleRevoke(inv)}
+                        disabled={revokingId === inv.id}
                         className="border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 hover:border-red-500/60 hover:text-red-200"
                       >
-                        <MailX className="size-4" />
+                        {revokingId === inv.id ? (
+                          <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+                        ) : (
+                          <MailX className="size-4" />
+                        )}
                         {t('revoke')}
                       </Button>
                     </li>

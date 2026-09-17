@@ -48,6 +48,7 @@ export default function NewBroadcastPage() {
   >({});
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
   const [name, setName] = useState('');
+  const [savingDraft, setSavingDraft] = useState(false);
 
   async function handleSend() {
     if (!template) return;
@@ -86,10 +87,21 @@ export default function NewBroadcastPage() {
    * A full resume-draft UX is a future polish.
    */
   async function handleSaveDraft() {
+    if (savingDraft) return; // evita duplo-clique → dois rascunhos
     if (!template || !name.trim()) {
       toast.error(t('toastGiveName'));
       return;
     }
+    setSavingDraft(true);
+    try {
+      await doSaveDraft();
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
+  async function doSaveDraft() {
+    if (!template) return;
     const supabase = createClient();
     const {
       data: { session },
@@ -250,6 +262,7 @@ export default function NewBroadcastPage() {
               onSaveDraft={handleSaveDraft}
               onBack={() => setCurrentStep(2)}
               isProcessing={isProcessing}
+              savingDraft={savingDraft}
               progress={progress}
             />
           )}

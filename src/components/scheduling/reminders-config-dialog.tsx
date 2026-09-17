@@ -41,11 +41,23 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
   const [remList, setRemList] = useState<RemItem[]>([]);
   const [keywordsText, setKeywordsText] = useState("sim, confirmar, ok, 1");
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const cr = await fetch(`/api/scheduling/config?unitId=${encodeURIComponent(unitId)}`);
+    setLoadError(null);
+    let cr: Response;
+    try {
+      cr = await fetch(`/api/scheduling/config?unitId=${encodeURIComponent(unitId)}`);
+    } catch {
+      setLoadError("Falha de rede ao carregar a configuração.");
+      return;
+    }
     const p = await parseApiResponse<{ config: Cfg }>(cr);
-    if (p.ok && p.data?.config) {
+    if (!p.ok || !p.data?.config) {
+      setLoadError(p.error || "Não foi possível carregar a configuração.");
+      return;
+    }
+    {
       const c = p.data.config;
       setCfg(c);
       // Semente da lista: usa `reminders` se houver; senão monta a partir dos
@@ -122,7 +134,18 @@ export function RemindersConfigDialog({ open, onOpenChange, unitId }: Props) {
           <DialogTitle className="text-popover-foreground">Lembretes & Funil</DialogTitle>
         </DialogHeader>
 
-        {!cfg ? (
+        {loadError ? (
+          <div className="rounded-lg border border-amber-700/40 bg-amber-950/20 p-3 text-sm">
+            <p className="text-amber-300">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => load()}
+              className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+            >
+              Tentar de novo
+            </button>
+          </div>
+        ) : !cfg ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : (
           <div className="space-y-4">

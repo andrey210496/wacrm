@@ -55,21 +55,34 @@ export function BillingPanel() {
   });
   const [savingRates, setSavingRates] = useState(false);
   const [rateMsg, setRateMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    fetch('/api/whatsapp/billing/summary')
-      .then((r) => {
-        if (r.status === 403) {
-          setHidden(true);
-          return null;
-        }
-        return r.ok ? r.json() : null;
-      })
-      .then((d: Summary | null) => d && setSummary(d))
-      .catch(() => {});
-    fetch('/api/whatsapp/billing/rates')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { rates?: Record<string, number> } | null) => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const r = await fetch('/api/whatsapp/billing/summary');
+      if (r.status === 403) {
+        setHidden(true);
+        return;
+      }
+      if (!r.ok) {
+        setLoadError('Não foi possível carregar o consumo.');
+        return;
+      }
+      setSummary((await r.json()) as Summary);
+    } catch {
+      setLoadError('Falha de rede ao carregar o consumo.');
+      return;
+    } finally {
+      setLoading(false);
+    }
+    // Tarifas — secundário, best-effort (não gateia o painel).
+    try {
+      const r = await fetch('/api/whatsapp/billing/rates');
+      if (r.ok) {
+        const d = (await r.json()) as { rates?: Record<string, number> };
         if (d?.rates) {
           setRates({
             marketing: d.rates.marketing ?? 0,
@@ -77,8 +90,10 @@ export function BillingPanel() {
             authentication: d.rates.authentication ?? 0,
           });
         }
-      })
-      .catch(() => {});
+      }
+    } catch {
+      /* tarifas são secundárias */
+    }
   }, []);
 
   useEffect(() => {
@@ -106,7 +121,33 @@ export function BillingPanel() {
     }
   };
 
-  if (hidden || !summary) return null;
+  // 403 = não-admin → o painel simplesmente não existe pra este usuário.
+  if (hidden) return null;
+
+  // Erro de carga: em vez de sumir silenciosamente, mostra o motivo + retry.
+  if (loadError) {
+    return (
+      <div className="mt-8 rounded-xl border border-amber-700/40 bg-amber-950/20 p-5">
+        <h3 className="text-sm font-semibold text-amber-200">Consumo por unidade</h3>
+        <p className="mt-1 text-sm text-amber-300">{loadError}</p>
+        <button type="button" onClick={() => load()} className="btn btn-ghost mt-3 text-xs">
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+
+  // Carregando (primeira carga): esqueleto em vez de tela em branco.
+  if (loading && !summary) {
+    return (
+      <div className="mt-8 animate-pulse rounded-xl border border-border bg-card p-5 motion-reduce:animate-none">
+        <div className="h-4 w-40 rounded bg-muted" />
+        <div className="mt-4 h-20 rounded bg-muted/60" />
+      </div>
+    );
+  }
+
+  if (!summary) return null;
 
   return (
     <div className="mt-8 rounded-xl border border-border bg-card p-5">
