@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Crown,
   GitBranch,
+  HelpCircle,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -124,6 +125,7 @@ const navSections: NavSection[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { href: "/ajuda", labelKey: "ajuda", icon: HelpCircle },
   { href: "/settings", labelKey: "settings", icon: Settings },
 ];
 
