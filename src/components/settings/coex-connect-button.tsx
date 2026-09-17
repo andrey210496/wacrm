@@ -25,11 +25,15 @@ declare global {
 
 type CoexConfig = { appId: string | null; configId: string | null; graphVersion: string; enabled: boolean };
 
-// Extrai waba_id (+ phone_number_id quando houver) do evento WA_EMBEDDED_SIGNUP.
-// IMPORTANTE: o FINISH do coex (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING) traz SÓ
-// waba_id — o phone_number_id NÃO vem, é buscado no servidor pela WABA. Já o
-// FINISH padrão traz os dois. Então só o waba_id é obrigatório aqui.
-function parseFinish(data: unknown): { phoneNumberId: string | null; wabaId: string } | null {
+type FinishInfo = { phoneNumberId: string | null; wabaId: string; mode: 'coex' | 'official' };
+
+// Extrai o resultado do popup do Embedded Signup. O EVENTO diz qual caminho o
+// usuário escolheu na tela de seleção da Meta:
+//  - FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING = coex (conectar app existente);
+//    traz só waba_id (phone_number_id é buscado no servidor pela WABA).
+//  - FINISH = número novo (oficial); traz phone_number_id + waba_id.
+// O modo decide, no servidor, se PULA o /register (coex) ou REGISTRA (oficial).
+function parseFinish(data: unknown): FinishInfo | null {
   let obj: unknown = data;
   if (typeof data === 'string') {
     try {
@@ -40,11 +44,12 @@ function parseFinish(data: unknown): { phoneNumberId: string | null; wabaId: str
   }
   if (!obj || typeof obj !== 'object') return null;
   const m = obj as { type?: string; event?: string; data?: { phone_number_id?: string; waba_id?: string } };
-  const isFinish = m.event === 'FINISH' || m.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
+  const isCoex = m.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
+  const isFinish = m.event === 'FINISH' || isCoex;
   if (m.type !== 'WA_EMBEDDED_SIGNUP' || !isFinish) return null;
   const wa = m.data?.waba_id;
   if (!wa) return null;
-  return { phoneNumberId: m.data?.phone_number_id ?? null, wabaId: wa };
+  return { phoneNumberId: m.data?.phone_number_id ?? null, wabaId: wa, mode: isCoex ? 'coex' : 'official' };
 }
 
 /**
@@ -61,10 +66,7 @@ export function CoexConnectButton({
 }) {
   const [config, setConfig] = useState<CoexConfig | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const sessionInfoRef = useRef<{ phoneNumberId: string | null; wabaId: string | null }>({
-    phoneNumberId: null,
-    wabaId: null,
-  });
+  const sessionInfoRef = useRef<FinishInfo>({ phoneNumberId: null, wabaId: '', mode: 'official' });
 
   // Config pública (runtime) + SDK.
   useEffect(() => {
@@ -118,7 +120,7 @@ export function CoexConnectButton({
       toast.error('Conexão com o Facebook indisponível.');
       return;
     }
-    sessionInfoRef.current = { phoneNumberId: null, wabaId: null };
+    sessionInfoRef.current = { phoneNumberId: null, wabaId: '', mode: 'official' };
     window.FB.login(
       (response) => {
         const code = response?.authResponse?.code;
@@ -126,7 +128,7 @@ export function CoexConnectButton({
           toast.message('Conexão cancelada.');
           return;
         }
-        const { phoneNumberId, wabaId } = sessionInfoRef.current;
+        const { phoneNumberId, wabaId, mode } = sessionInfoRef.current;
         // No coex só vem o waba_id; o phone_number_id é resolvido no servidor.
         if (!wabaId) {
           toast.error('Não recebemos os dados da conta. Tente novamente.');
@@ -138,15 +140,30 @@ export function CoexConnectButton({
             const res = await fetch('/api/whatsapp/coex/connect', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ code, phone_number_id: phoneNumberId ?? undefined, waba_id: wabaId, unitId }),
+              body: JSON.stringify({ code, phone_number_id: phoneNumberId ?? undefined, waba_id: wabaId, unitId, mode }),
             });
-            const p = await parseApiResponse<{ syncTriggered?: boolean }>(res);
+            const p = await parseApiResponse<{
+              mode?: string;
+              registerPin?: string | null;
+              registrationError?: string | null;
+            }>(res);
             if (p.ok) {
-              toast.success(
-                p.data?.syncTriggered
-                  ? 'Número conectado (coex)! Sincronizando contatos e histórico.'
-                  : 'Número conectado (coex)! A sincronização de histórico pode levar alguns minutos.',
-              );
+              if (p.data?.mode === 'official' && p.data?.registrationError) {
+                // Credenciais salvas, mas o /register falhou → número fica pendente.
+                toast.error(
+                  `Número salvo, mas o registro na Meta falhou: ${p.data.registrationError}. Ele fica PENDENTE. Tente reconectar.`,
+                  { duration: 14000 },
+                );
+              } else if (p.data?.mode === 'official' && p.data?.registerPin) {
+                toast.success(
+                  `Número conectado! Guarde o PIN de duas etapas deste número: ${p.data.registerPin} (não será exibido de novo).`,
+                  { duration: 15000 },
+                );
+              } else if (p.data?.mode === 'official') {
+                toast.success('Número conectado (oficial)!');
+              } else {
+                toast.success('Número conectado (coex)! Sincronizando contatos e histórico (pode levar minutos).');
+              }
               onConnected?.();
             } else {
               toast.error(p.error);
@@ -185,7 +202,7 @@ export function CoexConnectButton({
       <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
         <path d="M24 12c0-6.627-5.373-12-12-12S0 5.373 0 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078V12h3.047V9.356c0-3.007 1.792-4.668 4.533-4.668 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874V12h3.328l-.532 3.469h-2.796v8.385C19.612 22.954 24 17.99 24 12z" />
       </svg>
-      {submitting ? 'Conectando…' : 'Conectar com o Facebook (mantém seu WhatsApp Business)'}
+      {submitting ? 'Conectando…' : 'Conectar com o Facebook'}
     </button>
   );
 }

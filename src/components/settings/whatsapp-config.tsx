@@ -851,8 +851,9 @@ export function WhatsAppConfig() {
             <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
               <p className="text-sm font-medium text-foreground">Conexão rápida</p>
               <p className="text-xs text-muted-foreground">
-                Conecte pelo Facebook mantendo seu WhatsApp Business normal (Coexistence).
-                Selecione a unidade acima antes de conectar.
+                Conecte pelo Facebook. Na tela da Meta você escolhe: <b>número novo</b>
+                {' '}(oficial, verifica por SMS/voz) ou <b>conectar seu WhatsApp Business
+                existente</b> (coexistence). Selecione a unidade acima antes de conectar.
               </p>
               <CoexConnectButton
                 unitId={activeUnitId}

@@ -1,19 +1,18 @@
-// POST /api/whatsapp/coex/connect — conexão Coexistence self-service (o próprio
-// cliente conecta o número na instância). ADMIN. Recebe o resultado do Embedded
-// Signup coex { code, phone_number_id, waba_id, unitId } e:
-//   1. troca code→token (App Secret só no server)
-//   2. assina a WABA no app
-//   3. PULA o /register (coex: número já registrado no app WhatsApp Business)
-//   4. dispara os 2 syncs coex (smb_app_state_sync + history), best-effort/≤24h
-//   5. salva o whatsapp_config da unidade (connection_type='coex')
-//   6. reporta o status pra central (best-effort)
+// POST /api/whatsapp/coex/connect — conexão via Embedded Signup self-service.
+// A tela da Meta oferece DOIS caminhos e o `mode` diz qual foi:
+//   • mode='official' (número novo): troca token → assina WABA → REGISTRA o
+//     número (/register com PIN gerado, o passo que tira de "pendente") → salva.
+//   • mode='coex' (conectar app existente): troca token → assina WABA → PULA o
+//     /register (já registrado no app) → dispara os 2 syncs (contatos+histórico).
+// Depois salva o whatsapp_config (connection_type) e reporta o status à central.
 // Token nunca vai ao cliente; guardado criptografado (AES-256-GCM).
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { encrypt } from "@/lib/whatsapp/encryption";
 import { exchangeCodeForToken } from "@/lib/whatsapp/embedded-signup";
-import { subscribeWabaToApp, syncSmbAppData, getWabaPhoneNumbers } from "@/lib/whatsapp/meta-api";
+import { subscribeWabaToApp, syncSmbAppData, getWabaPhoneNumbers, registerPhoneNumber } from "@/lib/whatsapp/meta-api";
 import { reportNumberStatus } from "@/lib/whatsapp/report-number-status";
 
 function admin() {
@@ -41,6 +40,9 @@ export async function POST(request: Request) {
   let phoneNumberId = String(body.phone_number_id ?? "").trim();
   const wabaId = String(body.waba_id ?? "").trim();
   const unitId = String(body.unitId ?? "").trim();
+  // Modo escolhido na tela da Meta. Se não vier, infere pela presença do número
+  // (número novo/oficial traz phone_number_id; coex não). Default seguro: coex.
+  const mode: "official" | "coex" = body.mode === "official" ? "official" : body.mode === "coex" ? "coex" : phoneNumberId ? "official" : "coex";
   if (!code || !wabaId || !unitId) {
     return NextResponse.json(
       { error: "code, waba_id e unitId são obrigatórios." },
@@ -114,22 +116,38 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Não foi possível assinar a conta WhatsApp: ${message}` }, { status: 422 });
   }
 
-  // 3. COEX: pula o /register (número já registrado no app).
-
-  // 4. dispara os 2 syncs coex (best-effort — não bloqueia a conexão; ≤24h).
-  const syncErrors: string[] = [];
-  for (const syncType of ["smb_app_state_sync", "history"] as const) {
+  // 3. Registro do número.
+  //   • OFICIAL (número novo): PRECISA do /register com um PIN de 2 etapas — é o
+  //     passo que tira de "pendente / Account not registered". Geramos o PIN,
+  //     registramos e devolvemos UMA vez pro cliente guardar.
+  //   • COEX: PULA o /register (o número já vem registrado do app).
+  let registerPin: string | null = null;
+  let registrationError: string | null = null;
+  if (mode === "official") {
+    registerPin = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
     try {
-      await syncSmbAppData({ phoneNumberId, accessToken, syncType });
+      await registerPhoneNumber({ phoneNumberId, accessToken, pin: registerPin });
     } catch (err) {
-      const m = err instanceof Error ? err.message : "erro";
-      console.warn(`[coex/connect] sync ${syncType} falhou:`, m);
-      syncErrors.push(`${syncType}: ${m}`);
+      registrationError = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
+      console.error("[coex/connect] register (oficial) falhou:", registrationError);
     }
   }
 
-  // 5. salva o whatsapp_config da unidade. Coex = já registrado → status
-  // connected + registered_at/subscribed_apps_at = agora.
+  // 4. Syncs coex (contatos+histórico) — só no coex; best-effort, ≤24h.
+  const syncErrors: string[] = [];
+  if (mode === "coex") {
+    for (const syncType of ["smb_app_state_sync", "history"] as const) {
+      try {
+        await syncSmbAppData({ phoneNumberId, accessToken, syncType });
+      } catch (err) {
+        const m = err instanceof Error ? err.message : "erro";
+        console.warn(`[coex/connect] sync ${syncType} falhou:`, m);
+        syncErrors.push(`${syncType}: ${m}`);
+      }
+    }
+  }
+
+  // 5. salva o whatsapp_config da unidade.
   let accessTokenEnc: string;
   try {
     accessTokenEnc = encrypt(accessToken);
@@ -142,16 +160,19 @@ export async function POST(request: Request) {
   }
 
   const now = new Date().toISOString();
+  // Coex já é registrado. Oficial só fica "connected/registered" se o /register
+  // deu certo; se falhou, salva as credenciais mas marca desconectado + o erro.
+  const isLive = mode === "coex" || registrationError === null;
   const row = {
     phone_number_id: phoneNumberId,
     waba_id: wabaId || null,
     access_token: accessTokenEnc,
-    status: "connected",
-    connection_type: "coex",
-    connected_at: now,
-    registered_at: now,
+    status: isLive ? "connected" : "disconnected",
+    connection_type: mode,
+    connected_at: isLive ? now : null,
+    registered_at: isLive ? now : null,
     subscribed_apps_at: now,
-    last_registration_error: null,
+    last_registration_error: registrationError,
     updated_at: now,
   };
 
@@ -188,17 +209,20 @@ export async function POST(request: Request) {
     unitName: unit.name,
     phoneNumberId,
     wabaId,
-    status: "connected",
-    coex: true,
+    status: isLive ? "connected" : "pending",
+    coex: mode === "coex",
     connectedAt: now,
   });
   if (!rep.ok) console.warn("[coex/connect] report pra central falhou:", rep.error);
 
   return NextResponse.json({
     ok: true,
-    connected: true,
-    coex: true,
-    syncTriggered: syncErrors.length === 0,
+    mode,
+    connected: isLive,
+    // Oficial: PIN de 2 etapas devolvido UMA vez (só quando o registro deu certo).
+    registerPin: mode === "official" && registrationError === null ? registerPin : null,
+    registrationError,
+    syncTriggered: mode === "coex" ? syncErrors.length === 0 : undefined,
     syncErrors: syncErrors.length ? syncErrors : undefined,
     mirroredToCentral: rep.ok,
   });
