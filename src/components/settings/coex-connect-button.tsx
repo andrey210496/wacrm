@@ -162,11 +162,16 @@ export function CoexConnectButton({
         config_id: config.configId,
         response_type: 'code',
         override_default_response_type: true,
-        // Coexistence: exatamente como a doc oficial da Meta mostra —
-        // extras: { setup:{}, featureType:'whatsapp_business_app_onboarding', sessionInfoVersion:'3' }
-        // (featureType é CAMELCASE; sessionInfoVersion 3 = session logging, o
-        // listener de WA_EMBEDDED_SIGNUP pega o waba_id no FINISH do coex).
-        extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
+        // Coexistence: a doc de coex mostra `featureType` (camelCase); a doc da
+        // v4 cita `feature_type` (snake_case). Mandamos AS DUAS (chaves extras
+        // desconhecidas são ignoradas pelo SDK) pra não depender de adivinhar a
+        // grafia. sessionInfoVersion 3 = session logging (o listener pega o waba_id).
+        extras: {
+          setup: {},
+          featureType: 'whatsapp_business_app_onboarding',
+          feature_type: 'whatsapp_business_app_onboarding',
+          sessionInfoVersion: '3',
+        },
       },
     );
   }, [unitId, config, onConnected]);
