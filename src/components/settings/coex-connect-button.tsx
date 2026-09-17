@@ -25,8 +25,11 @@ declare global {
 
 type CoexConfig = { appId: string | null; configId: string | null; graphVersion: string; enabled: boolean };
 
-// Extrai phone_number_id + waba_id do evento WA_EMBEDDED_SIGNUP (FINISH).
-function parseFinish(data: unknown): { phoneNumberId: string; wabaId: string } | null {
+// Extrai waba_id (+ phone_number_id quando houver) do evento WA_EMBEDDED_SIGNUP.
+// IMPORTANTE: o FINISH do coex (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING) traz SÓ
+// waba_id — o phone_number_id NÃO vem, é buscado no servidor pela WABA. Já o
+// FINISH padrão traz os dois. Então só o waba_id é obrigatório aqui.
+function parseFinish(data: unknown): { phoneNumberId: string | null; wabaId: string } | null {
   let obj: unknown = data;
   if (typeof data === 'string') {
     try {
@@ -37,15 +40,11 @@ function parseFinish(data: unknown): { phoneNumberId: string; wabaId: string } |
   }
   if (!obj || typeof obj !== 'object') return null;
   const m = obj as { type?: string; event?: string; data?: { phone_number_id?: string; waba_id?: string } };
-  // O coex termina com um evento PRÓPRIO (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING),
-  // diferente do FINISH do fluxo padrão. Aceitamos os dois — ambos trazem
-  // phone_number_id + waba_id em `data`.
   const isFinish = m.event === 'FINISH' || m.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
   if (m.type !== 'WA_EMBEDDED_SIGNUP' || !isFinish) return null;
-  const pn = m.data?.phone_number_id;
   const wa = m.data?.waba_id;
-  if (!pn || !wa) return null;
-  return { phoneNumberId: pn, wabaId: wa };
+  if (!wa) return null;
+  return { phoneNumberId: m.data?.phone_number_id ?? null, wabaId: wa };
 }
 
 /**
@@ -128,8 +127,9 @@ export function CoexConnectButton({
           return;
         }
         const { phoneNumberId, wabaId } = sessionInfoRef.current;
-        if (!phoneNumberId || !wabaId) {
-          toast.error('Não recebemos os dados do número. Tente novamente.');
+        // No coex só vem o waba_id; o phone_number_id é resolvido no servidor.
+        if (!wabaId) {
+          toast.error('Não recebemos os dados da conta. Tente novamente.');
           return;
         }
         void (async () => {
@@ -138,7 +138,7 @@ export function CoexConnectButton({
             const res = await fetch('/api/whatsapp/coex/connect', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ code, phone_number_id: phoneNumberId, waba_id: wabaId, unitId }),
+              body: JSON.stringify({ code, phone_number_id: phoneNumberId ?? undefined, waba_id: wabaId, unitId }),
             });
             const p = await parseApiResponse<{ syncTriggered?: boolean }>(res);
             if (p.ok) {
@@ -162,11 +162,11 @@ export function CoexConnectButton({
         config_id: config.configId,
         response_type: 'code',
         override_default_response_type: true,
-        // Coexistence no Embedded Signup v4: a doc da v4 diz que é ligado pelo
-        // parâmetro `feature_type` (SNAKE_CASE, não camelCase) =
-        // 'whatsapp_business_app_onboarding'. + setup:{} e sessionInfoVersion 3
-        // (session logging → o listener de WA_EMBEDDED_SIGNUP pega phone/waba id).
-        extras: { setup: {}, sessionInfoVersion: '3', feature_type: 'whatsapp_business_app_onboarding' },
+        // Coexistence: exatamente como a doc oficial da Meta mostra —
+        // extras: { setup:{}, featureType:'whatsapp_business_app_onboarding', sessionInfoVersion:'3' }
+        // (featureType é CAMELCASE; sessionInfoVersion 3 = session logging, o
+        // listener de WA_EMBEDDED_SIGNUP pega o waba_id no FINISH do coex).
+        extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
       },
     );
   }, [unitId, config, onConnected]);

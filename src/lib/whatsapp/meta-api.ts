@@ -219,6 +219,37 @@ export async function syncSmbAppData(args: SyncSmbAppDataArgs): Promise<void> {
   }
 }
 
+export interface GetWabaPhoneNumbersArgs {
+  wabaId: string
+  accessToken: string
+}
+
+export interface WabaPhoneNumber {
+  id: string
+  display_phone_number?: string
+  verified_name?: string
+}
+
+/**
+ * Lista os números de uma WABA. Usado no COEX: o FINISH do coex traz só o
+ * `waba_id` (sem phone_number_id), então buscamos o número aqui pra completar a
+ * conexão. Coex conecta 1 número → normalmente devolve 1 item.
+ */
+export async function getWabaPhoneNumbers(
+  args: GetWabaPhoneNumbersArgs,
+): Promise<WabaPhoneNumber[]> {
+  const { wabaId, accessToken } = args
+  const url = `${META_API_BASE}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = (await response.json()) as { data?: WabaPhoneNumber[] }
+  return data.data ?? []
+}
+
 export interface GetSubscribedAppsArgs {
   wabaId: string
   accessToken: string

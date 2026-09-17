@@ -13,7 +13,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { encrypt } from "@/lib/whatsapp/encryption";
 import { exchangeCodeForToken } from "@/lib/whatsapp/embedded-signup";
-import { subscribeWabaToApp, syncSmbAppData } from "@/lib/whatsapp/meta-api";
+import { subscribeWabaToApp, syncSmbAppData, getWabaPhoneNumbers } from "@/lib/whatsapp/meta-api";
 import { reportNumberStatus } from "@/lib/whatsapp/report-number-status";
 
 function admin() {
@@ -36,12 +36,14 @@ export async function POST(request: Request) {
   }
 
   const code = String(body.code ?? "").trim();
-  const phoneNumberId = String(body.phone_number_id ?? "").trim();
+  // COEX: o FINISH traz só o waba_id; o phone_number_id é resolvido pela WABA
+  // aqui no servidor. No fluxo padrão o cliente pode já mandar o phone_number_id.
+  let phoneNumberId = String(body.phone_number_id ?? "").trim();
   const wabaId = String(body.waba_id ?? "").trim();
   const unitId = String(body.unitId ?? "").trim();
-  if (!code || !phoneNumberId || !wabaId || !unitId) {
+  if (!code || !wabaId || !unitId) {
     return NextResponse.json(
-      { error: "code, phone_number_id, waba_id e unitId são obrigatórios." },
+      { error: "code, waba_id e unitId são obrigatórios." },
       { status: 400 },
     );
   }
@@ -59,7 +61,33 @@ export async function POST(request: Request) {
 
   const db = admin();
 
-  // Trava global de phone_number_id: outro unidade já reivindicou este número? (409)
+  // 1. code → token (App Secret só no server).
+  let accessToken: string;
+  try {
+    accessToken = await exchangeCodeForToken({ code });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
+    console.error("[coex/connect] troca de code falhou:", message);
+    return NextResponse.json({ error: `Não foi possível concluir o login do Facebook: ${message}` }, { status: 422 });
+  }
+
+  // 1b. COEX: sem phone_number_id no evento → busca o número pela WABA.
+  if (!phoneNumberId) {
+    try {
+      const numbers = await getWabaPhoneNumbers({ wabaId, accessToken });
+      if (numbers.length === 0) {
+        return NextResponse.json({ error: "A conta conectada não tem número de telefone disponível." }, { status: 422 });
+      }
+      // Coex conecta 1 número; se houver mais de um, pega o primeiro.
+      phoneNumberId = numbers[0].id;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
+      console.error("[coex/connect] resolução do número pela WABA falhou:", message);
+      return NextResponse.json({ error: `Não foi possível obter o número da conta: ${message}` }, { status: 422 });
+    }
+  }
+
+  // 2. Trava global de phone_number_id: outra unidade já reivindicou? (409)
   const { data: claimed, error: claimErr } = await db
     .from("whatsapp_config")
     .select("unit_id")
@@ -75,16 +103,6 @@ export async function POST(request: Request) {
       { error: "Este número já está conectado a outra unidade nesta instância." },
       { status: 409 },
     );
-  }
-
-  // 1. code → token (App Secret só no server).
-  let accessToken: string;
-  try {
-    accessToken = await exchangeCodeForToken({ code });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido da Meta.";
-    console.error("[coex/connect] troca de code falhou:", message);
-    return NextResponse.json({ error: `Não foi possível concluir o login do Facebook: ${message}` }, { status: 422 });
   }
 
   // 2. assina a WABA no app (idempotente).
