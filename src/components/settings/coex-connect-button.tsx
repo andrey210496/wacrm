@@ -119,14 +119,6 @@ export function CoexConnectButton({
       return;
     }
     sessionInfoRef.current = { phoneNumberId: null, wabaId: null };
-    // DIAGNÓSTICO: prova, no F12 → Console, se o bundle novo está rodando e se o
-    // featureType (coex) está sendo enviado. Se não aparecer este log, a página
-    // está com o JS antigo em cache (hard refresh na tela de configurações).
-    console.info('[coex] FB.login', {
-      build: 'coex-featureType-camel+wabaresolve',
-      config_id: config.configId,
-      extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' },
-    });
     window.FB.login(
       (response) => {
         const code = response?.authResponse?.code;
