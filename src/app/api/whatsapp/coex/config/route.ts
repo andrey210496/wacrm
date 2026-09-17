@@ -19,5 +19,8 @@ export async function GET() {
     graphVersion,
     // Só dá pra conectar por coex se o app e a config de login existirem.
     enabled: Boolean(appId && configId),
+    // Marcador de build: confirma qual versão do código está NO AR (pra
+    // distinguir "rebuild não pegou" de "parâmetro errado"). Bater com o commit.
+    build: "coex-5c0163c-feature_type",
   });
 }
