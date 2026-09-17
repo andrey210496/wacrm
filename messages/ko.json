@@ -607,7 +607,10 @@
       "toastMarkedLost": "실패로 표시했습니다",
       "toastReopened": "딜이 재개되었습니다",
       "toastFailedDelete": "딜을 삭제하지 못했습니다",
-      "toastDeleted": "딜이 삭제되었습니다"
+      "toastDeleted": "딜이 삭제되었습니다",
+      "searchContact": "이름 또는 전화번호로 연락처 검색",
+      "noContactsFound": "연락처를 찾을 수 없습니다",
+      "clearContact": "선택한 연락처 지우기"
     },
     "settings": {
       "managePipeline": "파이프라인 관리",

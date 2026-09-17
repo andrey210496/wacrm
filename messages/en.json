@@ -607,7 +607,10 @@
       "toastMarkedLost": "Marked as lost",
       "toastReopened": "Deal reopened",
       "toastFailedDelete": "Failed to delete deal",
-      "toastDeleted": "Deal deleted"
+      "toastDeleted": "Deal deleted",
+      "searchContact": "Search contact by name or phone",
+      "noContactsFound": "No contacts found",
+      "clearContact": "Clear selected contact"
     },
     "settings": {
       "managePipeline": "Manage Pipeline",

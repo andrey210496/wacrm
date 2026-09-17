@@ -607,7 +607,10 @@
       "toastMarkedLost": "Marcado como perdido",
       "toastReopened": "Negócio reaberto",
       "toastFailedDelete": "Falha ao excluir negócio",
-      "toastDeleted": "Negócio excluído"
+      "toastDeleted": "Negócio excluído",
+      "searchContact": "Buscar contato por nome ou telefone",
+      "noContactsFound": "Nenhum contato encontrado",
+      "clearContact": "Limpar contato selecionado"
     },
     "settings": {
       "managePipeline": "Gerenciar funil",

@@ -69,7 +69,12 @@ export function DealForm({
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Contatos: busca server-side (limitada) em vez de carregar a base inteira.
+  // `contacts` = resultados da busca; `selectedContact` = o escolhido (mantém o
+  // nome visível mesmo fora dos resultados, inclusive ao editar um negócio).
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [contactQuery, setContactQuery] = useState("");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [linkedConversation, setLinkedConversation] =
     useState<Conversation | null>(null);
@@ -102,6 +107,8 @@ export function DealForm({
       setValue("");
       setCurrency(defaultCurrency);
       setContactId("");
+      setSelectedContact(null);
+      setContactQuery("");
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
@@ -110,23 +117,51 @@ export function DealForm({
   }, [open, deal, defaultStageId, stages, defaultCurrency]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Load supporting data once the sheet is open
+  // Perfis (equipe) são poucos — carrega inteiro. Contatos NÃO: buscados abaixo.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [c, p] = await Promise.all([
-        supabase.from("contacts").select("*").order("name"),
-        supabase.from("profiles").select("*").order("full_name"),
-      ]);
-      if (cancelled) return;
-      setContacts((c.data ?? []) as Contact[]);
-      setProfiles((p.data ?? []) as Profile[]);
+      const { data } = await supabase.from("profiles").select("*").order("full_name");
+      if (!cancelled) setProfiles((data ?? []) as Profile[]);
     })();
     return () => {
       cancelled = true;
     };
   }, [open, supabase]);
+
+  // Busca de contatos server-side (debounce), limitada — não puxa a base toda.
+  useEffect(() => {
+    if (!open) return;
+    const q = contactQuery.trim();
+    const timer = setTimeout(async () => {
+      let sel = supabase.from("contacts").select("id, name, phone, unit_id").order("name").limit(10);
+      if (q) sel = sel.or(`name.ilike.%${q}%,phone.ilike.%${q}%`);
+      const { data } = await sel;
+      setContacts((data ?? []) as Contact[]);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [open, contactQuery, supabase]);
+
+  // Ao abrir para EDITAR (ou com contato já escolhido), garante que o contato
+  // selecionado esteja carregado (o nome precisa aparecer e o unit_id é usado no
+  // save), mesmo que não esteja nos resultados da busca atual.
+  useEffect(() => {
+    if (!open || !contactId) return;
+    if (selectedContact?.id === contactId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("contacts")
+        .select("id, name, phone, unit_id")
+        .eq("id", contactId)
+        .maybeSingle();
+      if (!cancelled && data) setSelectedContact(data as Contact);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, contactId, selectedContact?.id, supabase]);
 
   // Fetch linked conversation for the selected contact (newest open one).
   // Clearing on no-selection is sync with prop state; the populated
@@ -180,7 +215,7 @@ export function DealForm({
       // operator's selected unit then the account default (same chain as
       // create) so the update still satisfies the can_see_unit RLS check;
       // if none resolves, leave unit_id untouched rather than block the save.
-      const linkedContact = contacts.find((c) => c.id === contactId);
+      const linkedContact = selectedContact;
       let unitId = linkedContact?.unit_id ?? selectedUnitId ?? null;
       if (!unitId && accountId) {
         try {
@@ -219,7 +254,7 @@ export function DealForm({
       // unit_id. Fall back to the operator's selected unit, then the
       // account default, so the insert always satisfies the `can_see_unit`
       // RLS check.
-      const linkedContact = contacts.find((c) => c.id === contactId);
+      const linkedContact = selectedContact;
       let unitId = linkedContact?.unit_id ?? selectedUnitId ?? null;
       if (!unitId) {
         try {
@@ -306,18 +341,70 @@ export function DealForm({
 
             <div className="grid gap-2">
               <Label className="text-muted-foreground">{t("contact")}</Label>
-              <select
-                value={contactId}
-                onChange={(e) => setContactId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="">{t("selectContact")}</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name || c.phone}
-                  </option>
-                ))}
-              </select>
+              {/* Busca server-side (limitada a 10). Não carrega a base inteira
+                  de contatos — só o que casa com a busca; o contato escolhido
+                  fica visível mesmo fora dos resultados (via selectedContact). */}
+              {selectedContact && selectedContact.id === contactId ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted px-2.5 py-2 text-sm">
+                  <span className="truncate text-foreground">
+                    {selectedContact.name || selectedContact.phone}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContactId("");
+                      setSelectedContact(null);
+                      setContactQuery("");
+                    }}
+                    aria-label={t("clearContact")}
+                    title={t("clearContact")}
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Input
+                    type="text"
+                    value={contactQuery}
+                    onChange={(e) => setContactQuery(e.target.value)}
+                    placeholder={t("searchContact")}
+                    aria-label={t("searchContact")}
+                    className="border-border bg-muted text-foreground"
+                  />
+                  {contacts.length > 0 ? (
+                    <ul className="max-h-44 overflow-y-auto rounded-lg border border-border bg-muted">
+                      {contacts.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContactId(c.id);
+                              setSelectedContact(c);
+                              setContactQuery("");
+                            }}
+                            className="flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left text-sm text-foreground hover:bg-background"
+                          >
+                            <span className="truncate">{c.name || c.phone}</span>
+                            {c.name && c.phone && (
+                              <span className="text-xs text-muted-foreground">
+                                {c.phone}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    contactQuery.trim() && (
+                      <p className="px-1 py-1 text-xs text-muted-foreground">
+                        {t("noContactsFound")}
+                      </p>
+                    )
+                  )}
+                </div>
+              )}
 
               {linkedConversation && (
                 <Link
