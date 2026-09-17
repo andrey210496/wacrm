@@ -371,6 +371,8 @@ export function UnidadesManager() {
                             variant="outline"
                             onClick={() => handleRename(u)}
                             disabled={isSaving}
+                            aria-label="Salvar nome da unidade"
+                            title="Salvar"
                             className="border-border"
                           >
                             {isSaving ? (
@@ -384,6 +386,8 @@ export function UnidadesManager() {
                             variant="outline"
                             onClick={cancelEdit}
                             disabled={isSaving}
+                            aria-label="Cancelar edição"
+                            title="Cancelar"
                             className="border-border"
                           >
                             <X className="size-4" />

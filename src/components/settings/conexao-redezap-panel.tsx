@@ -99,7 +99,7 @@ export function ConexaoRedezapPanel() {
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
-        <select className="input" value={unitId} onChange={(e) => setUnitId(e.target.value)}>
+        <select className="input" value={unitId} onChange={(e) => setUnitId(e.target.value)} aria-label="Unidade">
           <option value="" disabled>
             Selecione o estúdio
           </option>

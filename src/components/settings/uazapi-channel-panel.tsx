@@ -211,6 +211,7 @@ export function UazapiChannelPanel() {
           className="input"
           value={unitId}
           onChange={(e) => setUnitId(e.target.value)}
+          aria-label="Unidade"
         >
           <option value="" disabled>
             Selecione o estúdio

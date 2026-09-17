@@ -980,6 +980,8 @@ export function WhatsAppConfig() {
                   variant="outline"
                   size="icon"
                   onClick={handleCopyWebhookUrl}
+                  aria-label="Copiar URL do webhook"
+                  title="Copiar URL do webhook"
                   className="shrink-0 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
                 >
                   <Copy className="size-4" />

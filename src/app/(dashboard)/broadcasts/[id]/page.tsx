@@ -342,6 +342,8 @@ export default function BroadcastDetailPage() {
             variant="outline"
             size="icon"
             onClick={() => router.push('/broadcasts')}
+            aria-label="Voltar para transmissões"
+            title="Voltar"
             className="border-border"
           >
             <ArrowLeft className="h-4 w-4" />

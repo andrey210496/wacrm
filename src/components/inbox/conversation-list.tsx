@@ -242,6 +242,7 @@ export function ConversationList({
             value={search}
             onChange={handleSearchChange}
             placeholder={t("searchPlaceholder")}
+            aria-label={t("searchPlaceholder")}
             className="border-border bg-muted pl-9 text-sm text-foreground placeholder-muted-foreground focus:border-primary/50"
           />
         </div>

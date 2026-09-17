@@ -404,6 +404,7 @@ export default function ContactsPage() {
                 // set shrinks/grows, page N may no longer be valid.
                 setPage(0);
               }}
+              aria-label={t('searchPlaceholder')}
               placeholder={t('searchPlaceholder')}
               className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
@@ -662,6 +663,8 @@ export default function ContactsPage() {
                             size="icon-sm"
                             className="text-muted-foreground hover:text-foreground"
                             onClick={(e) => e.stopPropagation()}
+                            aria-label={`Ações de ${contact.name || 'contato'}`}
+                            title="Ações"
                           />
                         }
                       >
@@ -718,6 +721,8 @@ export default function ContactsPage() {
               size="icon-sm"
               disabled={!hasPrev}
               onClick={() => setPage((p) => p - 1)}
+              aria-label="Página anterior"
+              title="Página anterior"
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             >
               <ChevronLeft className="size-4" />
@@ -730,6 +735,8 @@ export default function ContactsPage() {
               size="icon-sm"
               disabled={!hasNext}
               onClick={() => setPage((p) => p + 1)}
+              aria-label="Próxima página"
+              title="Próxima página"
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             >
               <ChevronRight className="size-4" />

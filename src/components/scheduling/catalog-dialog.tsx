@@ -173,7 +173,7 @@ function ServicesTab({
               <span className="h-3 w-3 rounded-full" style={{ backgroundColor: s.color ?? "#888" }} />
               {s.name} · {s.duration_min}min{s.price != null ? ` · R$${s.price}` : ""}
             </span>
-            <button type="button" onClick={() => remove(s.id)} className="text-muted-foreground hover:text-destructive" aria-label="Excluir">
+            <button type="button" onClick={() => remove(s.id)} className="text-muted-foreground hover:text-destructive" aria-label={`Excluir serviço ${s.name}`} title="Excluir serviço">
               <Trash2 className="h-4 w-4" />
             </button>
           </li>
@@ -258,7 +258,7 @@ function ResourcesTab({
               <button type="button" onClick={() => setEditing(r)} className="text-xs text-primary hover:underline">
                 Horários
               </button>
-              <button type="button" onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive" aria-label="Excluir">
+              <button type="button" onClick={() => remove(r.id)} className="text-muted-foreground hover:text-destructive" aria-label={`Excluir recurso ${r.name}`} title="Excluir recurso">
                 <Trash2 className="h-4 w-4" />
               </button>
             </span>
