@@ -162,11 +162,11 @@ export function CoexConnectButton({
         config_id: config.configId,
         response_type: 'code',
         override_default_response_type: true,
-        // Embedded Signup v4: o coex é ligado pelo "Tipo de Recurso" DA
-        // CONFIGURAÇÃO no painel da Meta (não por parâmetro de código). O extras
-        // segue o formato comprovado da doc/central: setup:{} + sessionInfoVersion
-        // 3 (session logging → o listener de WA_EMBEDDED_SIGNUP pega phone/waba id).
-        extras: { setup: {}, sessionInfoVersion: '3' },
+        // Coexistence no Embedded Signup v4: a doc da v4 diz que é ligado pelo
+        // parâmetro `feature_type` (SNAKE_CASE, não camelCase) =
+        // 'whatsapp_business_app_onboarding'. + setup:{} e sessionInfoVersion 3
+        // (session logging → o listener de WA_EMBEDDED_SIGNUP pega phone/waba id).
+        extras: { setup: {}, sessionInfoVersion: '3', feature_type: 'whatsapp_business_app_onboarding' },
       },
     );
   }, [unitId, config, onConnected]);
