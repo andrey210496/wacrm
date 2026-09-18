@@ -658,3 +658,17 @@ git commit -m "docs(mm-1): documenta META_MM_API_VERSION no .env.example"
 - **Sem migration.**
 - **Ação do cliente:** aceitar a ToS do Marketing Messages no WhatsApp Manager por número (o badge indica quando está pendente). Enquanto não aceita, os disparos de marketing continuam saindo via fallback (Cloud API), só sem a otimização.
 - Smoke manual pós-deploy: abrir Configurações → WhatsApp e ver o badge; disparar 1 template de marketing para um número de teste e confirmar entrega.
+
+---
+
+## Débito conhecido (pós-revisão final)
+
+- **Automations não roteiam pro MM Lite.** `src/lib/automations/meta-send.ts:185` chama
+  `sendTemplateMessage` só com `params` (body-only), sem passar `template: templateRow`
+  — de propósito (comentário no arquivo: a wire shape do envio de automação é
+  deliberadamente inalterada). Consequência: um template de marketing disparado por
+  AUTOMAÇÃO sai pelo `/messages` clássico, não pelo `/marketing_messages`. Não é
+  regressão (sempre foi assim; envio funciona). Rotear ali sem mudar a forma do
+  payload exige separar "categoria p/ roteamento" de "row p/ components" na API do
+  `sendTemplateMessage` — fica para uma frente futura (MM-1.1 / junto do MM-2).
+  Broadcasts e inbox (os alvos principais do MM-1) já roteiam corretamente.
