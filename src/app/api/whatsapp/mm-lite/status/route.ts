@@ -20,6 +20,10 @@ export async function GET(request: Request) {
     const unitId =
       unitParam || (await resolveOperatorUnitId(supabase, accountId, userId))
 
+    // Isolamento por tenant aqui vem do RLS de `whatsapp_config` (policy
+    // `whatsapp_config_select`, migration 047 — exige `can_see_unit`), não de
+    // checagem própria desta rota; um `?unit=` de outra unidade/conta retorna
+    // vazio e cai em UNKNOWN/configured:false abaixo.
     const { data: config } = await supabase
       .from('whatsapp_config')
       .select('waba_id, access_token')

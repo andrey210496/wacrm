@@ -5,16 +5,18 @@ import { useEffect, useState } from 'react'
 type Status = 'ONBOARDED' | 'ELIGIBLE' | 'UNKNOWN'
 
 /**
- * Badge informativo do status MM Lite do número da unidade atual. NÃO bloqueia
- * nada — só orienta o cliente a aceitar a ToS no WhatsApp Manager para destravar
- * a otimização de entrega. Best-effort: falha some silenciosamente.
+ * Badge informativo do status MM Lite do número DA UNIDADE `unitId`. NÃO
+ * bloqueia nada — só orienta o cliente a aceitar a ToS no WhatsApp Manager
+ * para destravar a otimização de entrega. Best-effort: falha some silenciosa.
+ * Re-busca quando a unidade ativa muda no painel.
  */
-export function MmLiteStatusBadge() {
+export function MmLiteStatusBadge({ unitId }: { unitId?: string | null }) {
   const [status, setStatus] = useState<Status | null>(null)
 
   useEffect(() => {
+    if (!unitId) return
     let cancelled = false
-    fetch('/api/whatsapp/mm-lite/status')
+    fetch(`/api/whatsapp/mm-lite/status?unit=${encodeURIComponent(unitId)}`)
       .then((r) => r.json())
       .then((d) => {
         if (!cancelled) setStatus((d?.status as Status) ?? 'UNKNOWN')
@@ -25,9 +27,9 @@ export function MmLiteStatusBadge() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [unitId])
 
-  if (status === null) return null
+  if (!unitId || status === null) return null
 
   if (status === 'ONBOARDED') {
     return (

@@ -564,7 +564,7 @@ export function WhatsAppConfig() {
         description={t("description")}
       />
       <div className="mt-2">
-        <MmLiteStatusBadge />
+        <MmLiteStatusBadge unitId={activeUnitId} />
       </div>
       {/* Alerta de mensagens inbound não processadas (dead-letter). Silencioso
           quando não há nada pendente. */}
