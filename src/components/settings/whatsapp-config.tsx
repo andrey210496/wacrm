@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
 import { CoexConnectButton } from './coex-connect-button';
+import { MmLiteStatusBadge } from '@/components/settings/mm-lite-status-badge';
 import {
   Accordion,
   AccordionItem,
@@ -562,6 +563,9 @@ export function WhatsAppConfig() {
         title={t("title")}
         description={t("description")}
       />
+      <div className="mt-2">
+        <MmLiteStatusBadge />
+      </div>
       {/* Alerta de mensagens inbound não processadas (dead-letter). Silencioso
           quando não há nada pendente. */}
       <div className="mb-6">
