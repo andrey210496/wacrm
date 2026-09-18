@@ -7,8 +7,6 @@
 // do v21.0 usado no resto dos envios — blast radius mínimo.
 // ============================================================
 
-import type { MessageTemplate } from '@/types';
-
 /** Versão da Graph só para chamadas MM Lite. Definida no deploy via env
  *  (constraint: >= v24.0, onde marketing_messages_onboarding_status existe). */
 export function mmApiVersion(): string {
@@ -18,7 +16,7 @@ export function mmApiVersion(): string {
 /** true quando o template é da categoria marketing (case-insensitive). Row
  *  ausente => false (cai no /messages clássico). */
 export function isMarketingTemplate(
-  template?: Pick<MessageTemplate, 'category'> | null,
+  template?: { category?: string | null } | null,
 ): boolean {
   return (template?.category ?? '').toLowerCase() === 'marketing';
 }
