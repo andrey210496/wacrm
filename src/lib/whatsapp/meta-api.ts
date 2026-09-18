@@ -423,6 +423,7 @@ import {
   buildSendComponents,
   type SendTimeParams,
 } from './template-send-builder'
+import { isMarketingTemplate, marketingSendUrl } from './mm-lite'
 
 export interface SendTemplateMessageArgs {
   phoneNumberId: string
@@ -480,7 +481,10 @@ export async function sendTemplateMessage(
     messageParams,
     contextMessageId,
   } = args
-  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  const marketing = isMarketingTemplate(template)
+  const url = marketing
+    ? marketingSendUrl(phoneNumberId)
+    : `${META_API_BASE}/${phoneNumberId}/messages`
 
   const templatePayload: Record<string, unknown> = {
     name: templateName,
@@ -519,6 +523,11 @@ export async function sendTemplateMessage(
   }
   if (contextMessageId) {
     body.context = { message_id: contextMessageId }
+  }
+  if (marketing) {
+    // MM Lite: cai automaticamente no Cloud API se o número ainda não
+    // concluiu o onboarding (aceite da ToS) — envio nunca falha por isso.
+    body.product_policy = 'CLOUD_API_FALLBACK'
   }
 
   const response = await fetch(url, {
