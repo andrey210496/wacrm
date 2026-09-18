@@ -28,7 +28,8 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import type { MessageTemplate } from '@/types';
-import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { findOrCreateContactsBulk } from '@/lib/api/v1/contacts';
+import { normalizeKey } from '@/lib/contacts/dedupe';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -54,6 +55,12 @@ export interface CreateBroadcastParams {
   templateName: string;
   templateLanguage?: string | null;
   recipients: BroadcastRecipientInput[];
+  /**
+   * Unit to stamp on `broadcasts.unit_id` (NOT NULL since migration 043).
+   * The caller resolves this — see `getDefaultUnitId` /
+   * `resolveOperatorUnitId` in `@/lib/units`.
+   */
+  unitId: string;
 }
 
 interface PlannedRecipient {
@@ -88,7 +95,7 @@ export async function createBroadcast(
   auditUserId: string,
   params: CreateBroadcastParams
 ): Promise<BroadcastPlan> {
-  const { name, templateName, recipients } = params;
+  const { name, templateName, recipients, unitId } = params;
 
   if (!templateName) {
     throw new BroadcastError('bad_request', "'template_name' is required", 400);
@@ -110,10 +117,16 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
+  // Resolved by the broadcast's own `unitId` (migration 042,
+  // UNIQUE(unit_id)) so every recipient is sent FROM that unit's WhatsApp
+  // number. `account_id` stays as defense-in-depth; `.limit(1)` guards a
+  // stray duplicate before `.single()`.
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', unitId)
+    .limit(1)
     .single();
   if (configError || !config) {
     throw new BroadcastError(
@@ -129,6 +142,7 @@ export async function createBroadcast(
   const resolvedTemplate = await resolveTemplateRow(
     db,
     accountId,
+    unitId,
     templateName,
     params.templateLanguage
   );
@@ -143,7 +157,11 @@ export async function createBroadcast(
 
   // Resolve each recipient to a contact. Invalid phones are dropped
   // (counted as rejected) rather than aborting the whole broadcast.
-  const resolved: { contactId: string; phone: string; params: string[] }[] = [];
+  // A resolução é EM LOTE (antes: findOrCreateContact num laço = 2–3 queries
+  // por destinatário, até ~3000 round-trips sequenciais antes do 202). Aqui
+  // sanitizamos/validamos localmente e depois batemos todos os telefones de
+  // uma vez.
+  const valid: { phone: string; params: string[] }[] = [];
   let rejected = 0;
   for (const r of recipients) {
     const sanitized = sanitizePhoneForMeta(typeof r.to === 'string' ? r.to : '');
@@ -151,16 +169,31 @@ export async function createBroadcast(
       rejected++;
       continue;
     }
-    const { id } = await findOrCreateContact(db, accountId, auditUserId, {
-      phone: sanitized,
-    });
-    resolved.push({
-      contactId: id,
+    valid.push({
       phone: sanitized,
       params: Array.isArray(r.params)
         ? r.params.filter((p): p is string => typeof p === 'string')
         : [],
     });
+  }
+
+  const idByKey = await findOrCreateContactsBulk(
+    db,
+    accountId,
+    auditUserId,
+    valid.map((v) => v.phone),
+  );
+
+  const resolved: { contactId: string; phone: string; params: string[] }[] = [];
+  for (const v of valid) {
+    const contactId = idByKey.get(normalizeKey(v.phone));
+    if (!contactId) {
+      // Não resolveu/criou (falha dura ou corrida não reconciliada) — trata
+      // como rejeitado, mantendo a semântica de "não aborta a campanha".
+      rejected++;
+      continue;
+    }
+    resolved.push({ contactId, phone: v.phone, params: v.params });
   }
 
   // Collapse recipients that resolved to the SAME contact (the caller
@@ -202,6 +235,7 @@ export async function createBroadcast(
     'create_broadcast_with_recipients',
     {
       p_account_id: accountId,
+      p_unit_id: unitId,
       p_user_id: auditUserId,
       p_name: name || `API broadcast (${templateName})`,
       p_template_name: templateName,

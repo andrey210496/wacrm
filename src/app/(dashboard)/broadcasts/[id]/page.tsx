@@ -342,13 +342,15 @@ export default function BroadcastDetailPage() {
             variant="outline"
             size="icon"
             onClick={() => router.push('/broadcasts')}
+            aria-label="Voltar para transmissões"
+            title="Voltar"
             className="border-border"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-foreground">{broadcast.name}</h1>
+              <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">{broadcast.name}</h1>
               <span
                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${status.classes}`}
               >

@@ -30,6 +30,7 @@ import { useCan } from "@/hooks/use-can";
 import { useAuth } from "@/hooks/use-auth";
 import { GatedButton } from "@/components/ui/gated-button";
 import { useTranslations } from "next-intl";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
 
 // Pipeline creation is admin-class (settings-tier write under
 // the new RLS); deal creation is operational and only requires
@@ -51,6 +52,8 @@ export default function PipelinesPage() {
   const canEditSettings = useCan("edit-settings");
   const canCreateDeals = useCan("send-messages");
   const { accountId } = useAuth();
+  // Management-side unit filter (`null` = all units, admin+ only).
+  const { selectedUnitId } = useUnitScope();
 
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
@@ -99,14 +102,18 @@ export default function PipelinesPage() {
 
   const loadDeals = useCallback(
     async (pipelineId: string) => {
-      const { data } = await supabase
+      let query = supabase
         .from("deals")
         .select("*, contact:contacts(*), assignee:profiles!deals_assigned_to_fkey(*)")
-        .eq("pipeline_id", pipelineId)
-        .order("created_at", { ascending: false });
+        .eq("pipeline_id", pipelineId);
+
+      // Narrow to the selected unit when the admin has picked one.
+      if (selectedUnitId) query = query.eq("unit_id", selectedUnitId);
+
+      const { data } = await query.order("created_at", { ascending: false });
       return (data ?? []) as Deal[];
     },
-    [supabase],
+    [supabase, selectedUnitId],
   );
 
   const seedDefaultPipeline = useCallback(async (): Promise<Pipeline | null> => {

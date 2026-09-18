@@ -14,6 +14,13 @@ const h = vi.hoisted(() => ({
     /** Row `lookupInternalIdByMetaId` resolves for a `context.id`. */
     replyContextParent: null as { id: string } | null,
     conversation: { id: 'conv-1', unread_count: 0, account_id: 'acc-1' },
+    /** whatsapp_config.unit_id for the matched row (migration 042). */
+    configUnitId: 'unit-1' as string,
+    /** Rows the conversation lookup resolves. Empty ⇒ a new one is created. */
+    conversationRows: [] as unknown[],
+    /** Rows captured from contacts / conversations inserts. */
+    contactInserts: [] as Record<string, unknown>[],
+    conversationInserts: [] as Record<string, unknown>[],
     upsertCalls: [] as { row: Record<string, unknown>; options: unknown }[],
     rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
     afterCallbacks: [] as (() => Promise<void> | void)[],
@@ -53,6 +60,7 @@ vi.mock('@supabase/supabase-js', () => ({
                   data: [
                     {
                       account_id: 'acc-1',
+                      unit_id: h.state.configUnitId,
                       user_id: 'user-1',
                       access_token: 'enc',
                       mirror_inbound_media: h.state.mirrorInboundMedia,
@@ -62,23 +70,51 @@ vi.mock('@supabase/supabase-js', () => ({
                 }),
             }),
           }
-        case 'conversations':
-          // findOrCreateConversation: select().eq().eq().order().limit()
+        case 'contacts': {
+          // findOrCreateContact create path: insert(row).select().single().
+          // (The find path goes through the mocked dedupe helper below.)
           return {
-            select: () => ({
-              eq: () => ({
-                eq: () => ({
-                  order: () => ({
-                    limit: () =>
-                      Promise.resolve({
-                        data: [h.state.conversation],
-                        error: null,
-                      }),
-                  }),
+            insert: (row: Record<string, unknown>) => {
+              h.state.contactInserts.push(row)
+              return {
+                select: () => ({
+                  single: () =>
+                    Promise.resolve({
+                      data: { id: 'contact-new', ...row },
+                      error: null,
+                    }),
                 }),
-              }),
+              }
+            },
+          }
+        }
+        case 'conversations': {
+          // findOrCreateConversation lookup:
+          //   select().eq(account).eq(unit).eq(contact).order().limit()
+          // eq is chainable so the mock tolerates the added unit filter.
+          const convSelect: Record<string, unknown> = {
+            eq: () => convSelect,
+            order: () => ({
+              limit: () =>
+                Promise.resolve({ data: h.state.conversationRows, error: null }),
             }),
           }
+          return {
+            select: () => convSelect,
+            insert: (row: Record<string, unknown>) => {
+              h.state.conversationInserts.push(row)
+              return {
+                select: () => ({
+                  single: () =>
+                    Promise.resolve({
+                      data: { id: 'conv-new', ...row },
+                      error: null,
+                    }),
+                }),
+              }
+            },
+          }
+        }
         case 'broadcast_recipients':
           // flagBroadcastReplyIfAny: select().eq().eq().in().order().limit()
           return {
@@ -204,9 +240,11 @@ vi.mock('@/lib/webhooks/deliver', () => ({
 
 import { POST } from './route'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { findExistingContact } from '@/lib/contacts/dedupe'
 
 const mockGetMediaUrl = vi.mocked(getMediaUrl)
 const mockDownloadMedia = vi.mocked(downloadMedia)
+const mockFindExistingContact = vi.mocked(findExistingContact)
 
 const TEXT_MESSAGE = {
   id: 'wamid.TEST1',
@@ -252,6 +290,11 @@ beforeEach(() => {
   h.state.priorCustomerMsgCount = 0
   h.state.replyContextParent = null
   h.state.conversation = { id: 'conv-1', unread_count: 0, account_id: 'acc-1' }
+  // Default: the lookup finds the existing conversation (no create).
+  h.state.conversationRows = [h.state.conversation]
+  h.state.configUnitId = 'unit-1'
+  h.state.contactInserts = []
+  h.state.conversationInserts = []
   h.state.upsertCalls = []
   h.state.rpcCalls = []
   h.state.afterCallbacks = []
@@ -524,6 +567,39 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
     expect(mockGetMediaUrl).not.toHaveBeenCalled()
     expect(h.state.storageUploads).toHaveLength(0)
     expect(h.state.upsertCalls[0].row).toMatchObject({ media_type: null })
+  })
+})
+
+describe('inbound webhook: unit routing (USA.i multiunidade)', () => {
+  it('stamps the matched config unit on a newly created contact and conversation', async () => {
+    // The number that received the message belongs to unit-U, and this
+    // is a brand-new lead: no existing contact, no existing conversation.
+    h.state.configUnitId = 'unit-U'
+    mockFindExistingContact.mockResolvedValueOnce(null)
+    h.state.conversationRows = []
+
+    await runWebhook()
+
+    // Contact created in unit-U, and the dedup lookup was scoped to it.
+    expect(h.state.contactInserts).toHaveLength(1)
+    expect(h.state.contactInserts[0]).toMatchObject({
+      account_id: 'acc-1',
+      unit_id: 'unit-U',
+    })
+    expect(mockFindExistingContact).toHaveBeenCalledWith(
+      expect.anything(),
+      'acc-1',
+      expect.any(String),
+      'unit-U',
+    )
+
+    // Conversation created in unit-U too.
+    expect(h.state.conversationInserts).toHaveLength(1)
+    expect(h.state.conversationInserts[0]).toMatchObject({
+      account_id: 'acc-1',
+      unit_id: 'unit-U',
+      contact_id: 'contact-new',
+    })
   })
 })
 

@@ -4,6 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { getTemplate } from '@/lib/automations/templates'
 import { insertSteps, type BuilderStepInput } from '@/lib/automations/steps-tree'
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit'
 import {
   validateStepsForActivation,
   validateTriggerForActivation,
@@ -104,12 +105,19 @@ export async function POST(request: Request) {
     }
   }
 
+  // Stamp unit_id (NOT NULL since migration 043). This server route has no
+  // topbar context, so the automation belongs to the caller's own unit,
+  // falling back to the account default. The admin client below bypasses
+  // RLS, so any valid non-null unit satisfies the not-null constraint.
+  const unitId = await resolveOperatorUnitId(supabase, accountId, user.id, null)
+
   const admin = supabaseAdmin()
   const { data: automation, error: insertErr } = await admin
     .from('automations')
     .insert({
       user_id: user.id,
       account_id: accountId,
+      unit_id: unitId,
       name: effectiveName,
       description: effectiveDescription ?? null,
       trigger_type: effectiveTriggerType,

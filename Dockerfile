@@ -6,7 +6,11 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# `npm install` (não `npm ci`): o package-lock é gerado no Windows e a subárvore
+# de deps opcionais nativas (@tailwindcss/oxide -> @emnapi) resolve diferente no
+# Linux, o que faz `npm ci` abortar por "lock fora de sincronia". O install
+# reconcilia no próprio alvo, usando o lock como baseline.
+RUN npm install --no-audit --no-fund
 
 # ---------------------------------------------------------------
 # Stage 2 — build
@@ -49,6 +53,11 @@ RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
+# next-intl carrega as traduções via `import(\`../../messages/${locale}.json\`)`.
+# O template literal não é rastreado pelo output standalone, então os JSON de
+# mensagens NÃO entram no bundle — copiamos a pasta à mão, senão o app sobe mas
+# quebra no primeiro render (dicionário ausente).
+COPY --from=builder --chown=nextjs:nextjs /app/messages ./messages
 
 USER nextjs
 EXPOSE 3000

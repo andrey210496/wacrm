@@ -3,6 +3,19 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { resolveFallbackPolicy } from '@/lib/flows/fallback'
 
+// A varredura roda inline no request; um teto por rodada mantém a duração
+// limitada mesmo num silo com muitas runs ativas.
+export const maxDuration = 60
+
+/**
+ * Máximo de runs ativas processadas por invocação. Um silo movimentado pode
+ * acumular muitas runs ativas; sem teto, o `select` puxava TODAS e o loop
+ * podia estourar o tempo do request. Com o cap + ordem estável (mais antigas
+ * primeiro — as mais prováveis de estarem vencidas), cada rodada drena um
+ * lote e a próxima (5 min depois) continua de onde parou.
+ */
+const SWEEP_CAP = 200
+
 /**
  * Sweep abandoned active flow runs.
  *
@@ -48,15 +61,18 @@ export async function GET(request: Request) {
   const admin = supabaseAdmin()
   const now = new Date()
 
-  // Pull all currently-active runs along with their parent flow's
-  // fallback_policy. Joined in one query — the small set of active
-  // runs per tenant keeps this cheap.
+  // Pull active runs (oldest first) along with their parent flow's
+  // fallback_policy, joined in one query. Capped per invocation so a
+  // silo with many active runs can't make this an un-completable unit
+  // of work; the 5-minute cadence drains the backlog across passes.
   const { data: runs, error } = await admin
     .from('flow_runs')
     .select(
       'id, flow_id, user_id, contact_id, last_advanced_at, flows ( fallback_policy )',
     )
     .eq('status', 'active')
+    .order('last_advanced_at', { ascending: true })
+    .limit(SWEEP_CAP)
 
   if (error) {
     console.error('[flows-cron] active-run scan failed:', error.message)

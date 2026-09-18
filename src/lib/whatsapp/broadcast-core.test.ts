@@ -11,8 +11,15 @@ import {
 vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: () => 'plain-access-token',
 }));
+// Bulk contact resolution is exercised in contacts.test.ts — stub it here so
+// these tests focus on the persistence boundary. Returns a Map keyed by the
+// normalized phone key (digits only), as the real helper does.
 vi.mock('@/lib/api/v1/contacts', () => ({
-  findOrCreateContact: vi.fn(async () => ({ id: 'c1' })),
+  findOrCreateContactsBulk: vi.fn(async (_db, _acc, _user, phones: string[]) => {
+    const map = new Map<string, string>();
+    for (const p of phones) map.set(p.replace(/\D/g, ''), 'c1');
+    return map;
+  }),
 }));
 
 // These assertions all fire in the pure validation prologue, before
@@ -25,6 +32,7 @@ describe('createBroadcast validation', () => {
       createBroadcast(db, 'acc', 'user', {
         templateName: '',
         recipients: [{ to: '+14155550123' }],
+        unitId: 'unit-1',
       })
     ).rejects.toMatchObject({ code: 'bad_request', status: 400 });
   });
@@ -34,6 +42,7 @@ describe('createBroadcast validation', () => {
       createBroadcast(db, 'acc', 'user', {
         templateName: 'promo',
         recipients: [],
+        unitId: 'unit-1',
       })
     ).rejects.toBeInstanceOf(BroadcastError);
   });
@@ -43,7 +52,11 @@ describe('createBroadcast validation', () => {
       to: '+14155550123',
     }));
     await expect(
-      createBroadcast(db, 'acc', 'user', { templateName: 'promo', recipients })
+      createBroadcast(db, 'acc', 'user', {
+        templateName: 'promo',
+        recipients,
+        unitId: 'unit-1',
+      })
     ).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -57,21 +70,28 @@ function makeDb(rpcResult: { data: unknown; error: unknown }) {
     // Incremented if the OLD non-atomic path (a direct broadcasts /
     // broadcast_recipients insert) is ever reached — it must not be.
     usedDirectInsert: 0,
+    // Filters applied to the whatsapp_config lookup — proves per-unit scoping.
+    configFilters: {} as Record<string, unknown>,
   };
   const database = {
     from(table: string) {
       if (table === 'whatsapp_config') {
-        return {
-          select: () => ({
-            eq: () => ({
-              single: () =>
-                Promise.resolve({
-                  data: { phone_number_id: 'pn-1', access_token: 'enc' },
-                  error: null,
-                }),
+        // select().eq('account_id').eq('unit_id').limit(1).single() — the
+        // config is now resolved by the broadcast's unit (migration 042).
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: (col: string, val: unknown) => {
+            calls.configFilters[col] = val;
+            return chain;
+          },
+          limit: () => chain,
+          single: () =>
+            Promise.resolve({
+              data: { phone_number_id: 'pn-1', access_token: 'enc' },
+              error: null,
             }),
-          }),
         };
+        return chain;
       }
       if (table === 'message_templates') {
         const chain: Record<string, unknown> = {
@@ -112,10 +132,18 @@ describe('createBroadcast atomicity (#370)', () => {
     const plan = await createBroadcast(db, 'acc', 'user', {
       templateName: 'promo',
       recipients: [{ to: '+14155550123' }],
+      unitId: 'unit-1',
     });
 
     expect(calls.rpc).toHaveLength(1);
     expect(calls.rpc[0].name).toBe('create_broadcast_with_recipients');
+    expect(calls.rpc[0].args).toMatchObject({ p_unit_id: 'unit-1' });
+    // The send config is resolved by the broadcast's unit, so every
+    // recipient goes out from that unit's WhatsApp number.
+    expect(calls.configFilters).toMatchObject({
+      account_id: 'acc',
+      unit_id: 'unit-1',
+    });
     expect(calls.usedDirectInsert).toBe(0);
     expect(plan.broadcastId).toBe('b-1');
     expect(plan.planned).toEqual([
@@ -133,6 +161,7 @@ describe('createBroadcast atomicity (#370)', () => {
       createBroadcast(db, 'acc', 'user', {
         templateName: 'promo',
         recipients: [{ to: '+14155550123' }],
+        unitId: 'unit-1',
       })
     ).rejects.toBeInstanceOf(BroadcastError);
 

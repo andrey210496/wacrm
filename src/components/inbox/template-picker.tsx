@@ -34,6 +34,15 @@ interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
+  /**
+   * The unit whose WABA the message will be sent from — the current
+   * conversation's `unit_id`. Templates belong to one unit's WABA
+   * (migration 048), so only that unit's templates can actually be sent
+   * here; filtering by it hides same-named templates that live on other
+   * units' WABAs. Omitted/null → no unit filter (RLS still scopes an
+   * agent to their own unit's rows).
+   */
+  unitId?: string | null;
 }
 
 function renderBodyPreview(body: string, params: string[]): string {
@@ -78,6 +87,7 @@ export function TemplatePicker({
   open,
   onOpenChange,
   onSelect,
+  unitId,
 }: TemplatePickerProps) {
   const t = useTranslations("Inbox.templatePicker");
 
@@ -107,15 +117,19 @@ export function TemplatePicker({
         return;
       }
 
-      // Scope by RLS (message_templates_select → is_account_member), NOT by
-      // user_id. Templates are account-owned, so filtering on the caller's
-      // user_id hid templates that a teammate created — leaving them unable
-      // to send approved templates in a shared account.
-      const { data, error } = await supabase
+      // Scope by RLS (message_templates_select → is_account_member +
+      // can_see_unit), NOT by user_id — templates are account-owned, so
+      // a user_id filter hid teammates' templates. Additionally narrow to
+      // the conversation's unit so only templates that can actually be
+      // sent from this WABA appear (migration 048).
+      let query = supabase
         .from("message_templates")
         .select("*")
-        .eq("status", "APPROVED")
-        .order("created_at", { ascending: false });
+        .eq("status", "APPROVED");
+      if (unitId) query = query.eq("unit_id", unitId);
+      const { data, error } = await query.order("created_at", {
+        ascending: false,
+      });
 
       if (cancelled) return;
       if (error) {
@@ -130,7 +144,7 @@ export function TemplatePicker({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, unitId]);
 
   function resetSelection() {
     setSelected(null);

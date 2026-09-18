@@ -20,6 +20,7 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { captureError } from '@/lib/logs/capture';
 
 import {
   sendTextMessage,
@@ -48,6 +49,12 @@ import {
   templateBodyParams,
   templateContentText,
 } from '@/lib/whatsapp/template-body';
+import {
+  chooseChannel,
+  type ChannelOverride,
+} from '@/lib/whatsapp/outbound-router';
+import { getHybridConfig, nextInterleaveCounter } from '@/lib/channels/hybrid-config';
+import { sendUazapi } from '@/lib/uazapi/central-client';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -88,6 +95,12 @@ export interface SendMessageParams {
   /** Structured payload for `messageType === 'interactive'`. */
   interactivePayload?: InteractiveMessagePayload | null;
   replyToMessageId?: string | null;
+  /**
+   * Canal de saída (Frente 2). 'auto' (default) deixa o roteador decidir pelo
+   * híbrido "Conexão redezap"; 'official'/'uazapi' forçam (override por
+   * envio/automação).
+   */
+  channelOverride?: ChannelOverride;
 }
 
 export interface SendMessageResult {
@@ -201,6 +214,7 @@ export async function sendMessageToConversation(
     templateMessageParams,
     interactivePayload,
     replyToMessageId,
+    channelOverride,
   } = params;
 
   if (!conversationId) {
@@ -221,7 +235,9 @@ export async function sendMessageToConversation(
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
 
-  // Conversation + contact, account-scoped.
+  // Conversation + contact, account-scoped. `*` includes `unit_id`
+  // (NOT NULL since migration 043), which drives the per-unit config
+  // lookup below so the message sends FROM this conversation's unit.
   const { data: conversation, error: convError } = await db
     .from('conversations')
     .select('*, contact:contacts(*)')
@@ -234,16 +250,21 @@ export async function sendMessageToConversation(
   }
 
   const contact = conversation.contact;
-  if (!contact?.phone) {
+  // Destinatário: telefone se houver, senão o BSUID (contato só-username, sem
+  // número). Pelo menos um é obrigatório.
+  const bsuid: string | null = contact?.bsuid ?? null;
+  const sanitizedPhone: string | null = contact?.phone
+    ? sanitizePhoneForMeta(contact.phone)
+    : null;
+
+  if (!sanitizedPhone && !bsuid) {
     throw new SendMessageError(
       'bad_request',
-      'Contact phone number not found',
+      'Contato sem telefone e sem BSUID — não há destinatário.',
       400
     );
   }
-
-  const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
-  if (!isValidE164(sanitizedPhone)) {
+  if (sanitizedPhone && !isValidE164(sanitizedPhone)) {
     throw new SendMessageError(
       'bad_request',
       'Invalid phone number format',
@@ -251,11 +272,17 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
+  // WhatsApp config for THIS conversation's unit. An account holds one
+  // config row per unit (migration 042, UNIQUE(unit_id)), so we resolve
+  // by the conversation's `unit_id` — the message sends FROM that unit's
+  // WhatsApp number. `account_id` is kept as defense-in-depth. `.limit(1)`
+  // before `.single()` guards against a stray duplicate.
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('unit_id', conversation.unit_id)
+    .limit(1)
     .single();
 
   if (configError || !config) {
@@ -322,6 +349,7 @@ export async function sendMessageToConversation(
     const resolved = await resolveTemplateRow(
       db,
       accountId,
+      conversation.unit_id,
       templateName,
       templateLanguage
     );
@@ -336,12 +364,21 @@ export async function sendMessageToConversation(
     sendLanguage = resolved.language;
   }
 
-  const attempt = async (phone: string): Promise<string> => {
+  const attempt = async (rcpt: { to?: string; recipient?: string }): Promise<string> => {
+    // Template e interativo ainda exigem telefone (o envio por BSUID cobre
+    // texto e mídia — a resposta do atendente ao lead de username).
+    if ((messageType === 'template' || messageType === 'interactive') && !rcpt.to) {
+      throw new SendMessageError(
+        'bad_request',
+        'Ainda não dá para enviar template/interativo para contato sem telefone (username). Use texto ou mídia.',
+        400
+      );
+    }
     if (messageType === 'template') {
       const result = await sendTemplateMessage({
         phoneNumberId: config.phone_number_id,
         accessToken,
-        to: phone,
+        to: rcpt.to!,
         templateName: templateName!,
         language: sendLanguage,
         template: templateRow ?? undefined,
@@ -355,7 +392,8 @@ export async function sendMessageToConversation(
       const result = await sendMediaMessage({
         phoneNumberId: config.phone_number_id,
         accessToken,
-        to: phone,
+        to: rcpt.to,
+        recipient: rcpt.recipient,
         kind: messageType as MediaKind,
         link: mediaUrl!,
         caption: contentText || undefined,
@@ -370,7 +408,7 @@ export async function sendMessageToConversation(
         const result = await sendInteractiveButtons({
           phoneNumberId: config.phone_number_id,
           accessToken,
-          to: phone,
+          to: rcpt.to!,
           bodyText: p.body,
           headerText: p.header || undefined,
           footerText: p.footer || undefined,
@@ -382,7 +420,7 @@ export async function sendMessageToConversation(
       const result = await sendInteractiveList({
         phoneNumberId: config.phone_number_id,
         accessToken,
-        to: phone,
+        to: rcpt.to!,
         bodyText: p.body,
         buttonLabel: p.button_label,
         headerText: p.header || undefined,
@@ -395,57 +433,138 @@ export async function sendMessageToConversation(
     const result = await sendTextMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
-      to: phone,
+      to: rcpt.to,
+      recipient: rcpt.recipient,
       text: contentText!,
       contextMessageId,
     });
     return result.messageId;
   };
 
-  // Send via Meta — retry across phone-number variants if Meta rejects
-  // with "recipient not in allowed list"; persist a working variant
-  // back to the contact so the next send goes straight through.
+  // ---- Roteamento de canal (Frente 2 — "Conexão redezap") ----
+  // Uma % das mensagens COBRÁVEIS e elegíveis vai pela uazapi (R$0 Meta). A
+  // decisão é pura; o fail-safe é aqui: se a uazapi falhar, cai pro oficial.
+  let channelUsed: 'official' | 'uazapi' = 'official';
   let waMessageId = '';
-  let workingPhone = sanitizedPhone;
-  try {
-    const variants = phoneVariants(sanitizedPhone);
-    let lastError: unknown = null;
-
-    for (const variant of variants) {
+  {
+    const cfg = await getHybridConfig(conversation.unit_id);
+    const windowOpen = conversation.last_inbound_at
+      ? Date.now() - new Date(conversation.last_inbound_at).getTime() < 24 * 3600 * 1000
+      : false;
+    const routeArgs = {
+      hybridEnabled: cfg.hybridEnabled,
+      uazapiPct: cfg.uazapiPct,
+      billableMode: cfg.billableMode,
+      messageType,
+      windowOpen,
+      now: new Date(),
+      hasPhone: !!sanitizedPhone,
+      override: channelOverride ?? 'auto',
+    } as const;
+    let decided = chooseChannel({ ...routeArgs, counter: 0 });
+    if (decided.consumeCounter) {
+      const counter = await nextInterleaveCounter(conversation.unit_id);
+      decided = chooseChannel({ ...routeArgs, counter });
+    }
+    if (decided.channel === 'uazapi' && sanitizedPhone) {
       try {
-        waMessageId = await attempt(variant);
-        workingPhone = variant;
-        lastError = null;
-        break;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(message)) {
-          throw err;
+        if (isMediaKind) {
+          const r = await sendUazapi(conversation.unit_id, {
+            to: sanitizedPhone,
+            type: 'media',
+            mediaKind: messageType as 'image' | 'video' | 'audio' | 'document',
+            mediaUrl: mediaUrl!,
+            text: contentText ?? undefined,
+            filename: filename ?? undefined,
+          });
+          waMessageId = r.messageId ?? `uz_${Date.now()}`;
+        } else {
+          const text =
+            messageType === 'template'
+              ? templateContentText(
+                  templateRow,
+                  templateBodyParams(templateParams, templateMessageParams),
+                  contentText
+                ) ??
+                contentText ??
+                ''
+              : contentText ?? '';
+          const r = await sendUazapi(conversation.unit_id, {
+            to: sanitizedPhone,
+            type: 'text',
+            text,
+          });
+          waMessageId = r.messageId ?? `uz_${Date.now()}`;
         }
-        lastError = err;
+        channelUsed = 'uazapi';
+      } catch (err) {
         console.warn(
-          `[send-message] variant "${variant}" rejected by Meta, trying next…`
+          '[send-message] uazapi falhou, fail-safe pro oficial:',
+          err instanceof Error ? err.message : err
         );
+        channelUsed = 'official';
       }
     }
-
-    if (lastError) throw lastError;
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
   }
 
-  if (workingPhone !== sanitizedPhone) {
-    console.log(
-      `[send-message] Auto-corrected contact phone: ${sanitizedPhone} → ${workingPhone}`
-    );
-    await db
-      .from('contacts')
-      .update({ phone: workingPhone })
-      .eq('id', contact.id);
+  // Send via Meta (só quando o canal é oficial, incluindo o fail-safe da uazapi)
+  // — retry across phone-number variants if Meta rejects with "recipient not in
+  // allowed list"; persist a working variant back to the contact.
+  if (channelUsed === 'official') {
+  if (sanitizedPhone) {
+    // Fluxo por TELEFONE — retry entre variantes + auto-correção do número.
+    let workingPhone = sanitizedPhone;
+    try {
+      const variants = phoneVariants(sanitizedPhone);
+      let lastError: unknown = null;
+
+      for (const variant of variants) {
+        try {
+          waMessageId = await attempt({ to: variant });
+          workingPhone = variant;
+          lastError = null;
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!isRecipientNotAllowedError(message)) {
+            throw err;
+          }
+          lastError = err;
+          console.warn(
+            `[send-message] variant "${variant}" rejected by Meta, trying next…`
+          );
+        }
+      }
+
+      if (lastError) throw lastError;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown Meta API error';
+      console.error('[send-message] Meta send failed for all variants:', message);
+      throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+    }
+
+    if (workingPhone !== sanitizedPhone) {
+      console.log(
+        `[send-message] Auto-corrected contact phone: ${sanitizedPhone} → ${workingPhone}`
+      );
+      await db
+        .from('contacts')
+        .update({ phone: workingPhone })
+        .eq('id', contact.id);
+    }
+  } else {
+    // Fluxo por BSUID (contato só-username, sem telefone) — sem variantes.
+    try {
+      waMessageId = await attempt({ recipient: bsuid! });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown Meta API error';
+      console.error('[send-message] Meta send (BSUID) failed:', message);
+      throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+    }
   }
+  } // fim do gate channelUsed === 'official'
 
   // Persist the sent message. Field names MUST match the messages
   // schema (see 001_initial_schema.sql).
@@ -482,12 +601,19 @@ export async function sendMessageToConversation(
       message_id: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,
+      channel: channelUsed,
     })
     .select()
     .single();
 
   if (msgError) {
     console.error('[send-message] error inserting sent message:', msgError);
+    void captureError({
+      feature: 'send-message',
+      message: `mensagem enviada à Meta mas FALHOU ao salvar no banco: ${msgError.message}`,
+      errorType: msgError.code ?? 'DbError',
+      context: { conversationId, channel: channelUsed, waMessageId },
+    });
     throw new SendMessageError(
       'db_error',
       `Message sent to Meta but failed to save to DB: ${msgError.message}`,
