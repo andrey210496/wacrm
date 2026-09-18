@@ -11,8 +11,15 @@ import {
 vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: () => 'plain-access-token',
 }));
+// Bulk contact resolution is exercised in contacts.test.ts — stub it here so
+// these tests focus on the persistence boundary. Returns a Map keyed by the
+// normalized phone key (digits only), as the real helper does.
 vi.mock('@/lib/api/v1/contacts', () => ({
-  findOrCreateContact: vi.fn(async () => ({ id: 'c1' })),
+  findOrCreateContactsBulk: vi.fn(async (_db, _acc, _user, phones: string[]) => {
+    const map = new Map<string, string>();
+    for (const p of phones) map.set(p.replace(/\D/g, ''), 'c1');
+    return map;
+  }),
 }));
 
 // These assertions all fire in the pure validation prologue, before

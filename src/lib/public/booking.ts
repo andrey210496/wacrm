@@ -144,11 +144,19 @@ export async function publicSlots(params: {
     resourceIds = ((rs ?? []) as { id: string }[]).map((x) => x.id);
   }
 
-  const perResource: ResourceSlots[] = [];
-  for (const rid of resourceIds) {
-    const slots = applyLead(await slotsForResource(rid, params.dateStr, service.duration_min), params.unit.leadTimeMin, now);
-    perResource.push({ resourceId: rid, slots });
-  }
+  // Antes: um await sequencial por recurso (endpoint público → N recursos × 3
+  // queries em série por request de visitante). Agora resolve os recursos em
+  // paralelo — o nº de recursos ativos de uma unidade é pequeno e delimitado.
+  const perResource: ResourceSlots[] = await Promise.all(
+    resourceIds.map(async (rid) => ({
+      resourceId: rid,
+      slots: applyLead(
+        await slotsForResource(rid, params.dateStr, service.duration_min),
+        params.unit.leadTimeMin,
+        now,
+      ),
+    })),
+  );
   const combined = combineResourceSlots(perResource);
   return combined.map((s) => ({ start: s.start.toISOString(), end: s.end.toISOString(), resourceId: s.resourceId }));
 }

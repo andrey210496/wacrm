@@ -28,7 +28,8 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import type { MessageTemplate } from '@/types';
-import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { findOrCreateContactsBulk } from '@/lib/api/v1/contacts';
+import { normalizeKey } from '@/lib/contacts/dedupe';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -156,7 +157,11 @@ export async function createBroadcast(
 
   // Resolve each recipient to a contact. Invalid phones are dropped
   // (counted as rejected) rather than aborting the whole broadcast.
-  const resolved: { contactId: string; phone: string; params: string[] }[] = [];
+  // A resolução é EM LOTE (antes: findOrCreateContact num laço = 2–3 queries
+  // por destinatário, até ~3000 round-trips sequenciais antes do 202). Aqui
+  // sanitizamos/validamos localmente e depois batemos todos os telefones de
+  // uma vez.
+  const valid: { phone: string; params: string[] }[] = [];
   let rejected = 0;
   for (const r of recipients) {
     const sanitized = sanitizePhoneForMeta(typeof r.to === 'string' ? r.to : '');
@@ -164,16 +169,31 @@ export async function createBroadcast(
       rejected++;
       continue;
     }
-    const { id } = await findOrCreateContact(db, accountId, auditUserId, {
-      phone: sanitized,
-    });
-    resolved.push({
-      contactId: id,
+    valid.push({
       phone: sanitized,
       params: Array.isArray(r.params)
         ? r.params.filter((p): p is string => typeof p === 'string')
         : [],
     });
+  }
+
+  const idByKey = await findOrCreateContactsBulk(
+    db,
+    accountId,
+    auditUserId,
+    valid.map((v) => v.phone),
+  );
+
+  const resolved: { contactId: string; phone: string; params: string[] }[] = [];
+  for (const v of valid) {
+    const contactId = idByKey.get(normalizeKey(v.phone));
+    if (!contactId) {
+      // Não resolveu/criou (falha dura ou corrida não reconciliada) — trata
+      // como rejeitado, mantendo a semântica de "não aborta a campanha".
+      rejected++;
+      continue;
+    }
+    resolved.push({ contactId, phone: v.phone, params: v.params });
   }
 
   // Collapse recipients that resolved to the SAME contact (the caller

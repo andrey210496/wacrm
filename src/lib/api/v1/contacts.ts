@@ -9,7 +9,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import {
+  findExistingContact,
+  isUniqueViolation,
+  normalizeKey,
+} from '@/lib/contacts/dedupe';
 import { resolveImportTagIds } from '@/lib/contacts/resolve-import-tags';
 import { addContactTagAndDispatch } from '@/lib/contacts/tag-events';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
@@ -162,6 +166,102 @@ export async function findOrCreateContact(
   }
 
   return { id: created.id, created: true };
+}
+
+/**
+ * Resolve MANY phones to contact ids in bulk, creating the missing ones.
+ * Returns a Map keyed by the normalized phone key (digits-only, the same
+ * form `contacts.phone_normalized` stores) → contact id.
+ *
+ * Substitui o `findOrCreateContact` chamado num laço (que fazia 2–3 queries
+ * POR destinatário — até ~3000 round-trips sequenciais antes do 202 de uma
+ * campanha). Aqui: resolve a unidade 1×, busca os existentes por
+ * `phone_normalized` em lote e insere só os que faltam, também em lote. Match
+ * exato normalizado — mesma estratégia do upload de CSV (`upsertCsvContacts`);
+ * os telefones já chegam sanitizados em E.164. Em erro de um bloco de insert
+ * (ex.: corrida no índice único), cai para o caminho unitário robusto só
+ * daquele bloco, preservando o backstop de 23505.
+ *
+ * Phones inválidos/vazios são simplesmente ausentes do Map (o chamador conta
+ * como rejeitados). Não lança por telefone — só em falha dura de banco.
+ */
+export async function findOrCreateContactsBulk(
+  db: SupabaseClient,
+  accountId: string,
+  auditUserId: string,
+  phones: string[],
+): Promise<Map<string, string>> {
+  const idByKey = new Map<string, string>();
+
+  // De-dup por chave normalizada; guarda um telefone representativo por chave.
+  const phoneByKey = new Map<string, string>();
+  for (const p of phones) {
+    const sanitized = sanitizePhoneForMeta(p);
+    if (!isValidE164(sanitized)) continue;
+    const key = normalizeKey(sanitized);
+    if (!key || phoneByKey.has(key)) continue;
+    phoneByKey.set(key, sanitized);
+  }
+  if (phoneByKey.size === 0) return idByKey;
+
+  const unitId = await getDefaultUnitId(db, accountId);
+  const keys = [...phoneByKey.keys()];
+
+  // Busca existentes por phone_normalized, em blocos (o IN do PostgREST tem
+  // teto ~1000).
+  const LOOKUP_CHUNK = 500;
+  for (let i = 0; i < keys.length; i += LOOKUP_CHUNK) {
+    const slice = keys.slice(i, i + LOOKUP_CHUNK);
+    const { data } = await db
+      .from('contacts')
+      .select('id, phone_normalized')
+      .eq('account_id', accountId)
+      .eq('unit_id', unitId)
+      .in('phone_normalized', slice);
+    for (const row of (data ?? []) as { id: string; phone_normalized: string }[]) {
+      if (row.phone_normalized) idByKey.set(row.phone_normalized, row.id);
+    }
+  }
+
+  // Insere os que faltam, em blocos.
+  const missingKeys = keys.filter((k) => !idByKey.has(k));
+  const INSERT_CHUNK = 200;
+  for (let i = 0; i < missingKeys.length; i += INSERT_CHUNK) {
+    const chunkKeys = missingKeys.slice(i, i + INSERT_CHUNK);
+    const rows = chunkKeys.map((k) => ({
+      account_id: accountId,
+      unit_id: unitId,
+      user_id: auditUserId,
+      phone: phoneByKey.get(k)!,
+      name: phoneByKey.get(k)!,
+    }));
+    const { data: created, error } = await db
+      .from('contacts')
+      .insert(rows)
+      .select('id, phone_normalized');
+
+    if (error) {
+      // Bloco falhou (provável corrida no índice único). Degrada para o
+      // caminho unitário — que já reconcilia o 23505 — só neste bloco.
+      for (const k of chunkKeys) {
+        try {
+          const { id } = await findOrCreateContact(db, accountId, auditUserId, {
+            phone: phoneByKey.get(k)!,
+          });
+          idByKey.set(k, id);
+        } catch {
+          // Não resolveu — fica ausente do Map (contado como rejeitado).
+        }
+      }
+      continue;
+    }
+
+    for (const row of (created ?? []) as { id: string; phone_normalized: string }[]) {
+      if (row.phone_normalized) idByKey.set(row.phone_normalized, row.id);
+    }
+  }
+
+  return idByKey;
 }
 
 /**

@@ -17,6 +17,20 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit'
 
+// O fan-out abaixo é sequencial (até 2 chamadas Meta por destinatário) e roda
+// INLINE no ciclo do request. Sem teto de duração, um lote grande estouraria o
+// tempo da função serverless.
+export const maxDuration = 60
+
+/**
+ * Teto de destinatários por chamada. O wizard já fatia em lotes de 10 no
+ * cliente, mas a rota não tinha teto interno: um chamador direto podia mandar
+ * milhares num único request e travar a função. Campanhas grandes devem passar
+ * pelo caminho durável (`/api/v1/broadcasts` + resume), que roda em background
+ * com lock e é retomável.
+ */
+const MAX_RECIPIENTS_PER_CALL = 100
+
 interface BroadcastResult {
   phone: string
   status: 'sent' | 'failed'
@@ -109,6 +123,15 @@ export async function POST(request: Request) {
         {
           error:
             'Provide either `recipients` (preferred) or `phone_numbers` — must be a non-empty array',
+        },
+        { status: 400 }
+      )
+    }
+
+    if (recipients.length > MAX_RECIPIENTS_PER_CALL) {
+      return NextResponse.json(
+        {
+          error: `Too many recipients in one call (max ${MAX_RECIPIENTS_PER_CALL}). Use the campaign flow, which batches and can resume.`,
         },
         { status: 400 }
       )

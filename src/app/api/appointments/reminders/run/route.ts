@@ -21,6 +21,14 @@ import type { SchedulingConfig } from "@/lib/scheduling/config";
 
 export const dynamic = "force-dynamic";
 
+// Worker pesado: envia lembretes de WhatsApp (chamada externa) 1-a-1, e a
+// CENTRAL pode orquestrar a frota inteira num só request. Teto de duração +
+// orçamento de tempo abaixo dele: ao esgotar, para de reivindicar novos envios
+// e devolve `partial: true`. Nada se perde — o dedupe/claim garante que o
+// próximo cron retoma o que ficou (o offset segue "due" até virar 'sent').
+export const maxDuration = 300;
+const RUN_BUDGET_MS = 250_000;
+
 function fmtDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" });
 }
@@ -58,6 +66,8 @@ export async function POST(request: Request) {
 
   const admin = supabaseAdmin();
   const now = new Date();
+  const deadline = Date.now() + RUN_BUDGET_MS;
+  let partial = false;
   let sent = 0;
   let errors = 0;
 
@@ -66,7 +76,8 @@ export async function POST(request: Request) {
     .select("*")
     .eq("reminders_enabled", true);
 
-  for (const cfg of ((configs ?? []) as SchedulingConfig[])) {
+  outer: for (const cfg of ((configs ?? []) as SchedulingConfig[])) {
+    if (Date.now() >= deadline) { partial = true; break outer; }
     // Lista efetiva: cada lembrete tem seu texto (fallback pro texto único).
     const items = effectiveReminders(cfg);
     const offsets = [...new Set(items.map((i) => i.offset_min))];
@@ -105,6 +116,7 @@ export async function POST(request: Request) {
     }
 
     for (const appt of rows) {
+      if (Date.now() >= deadline) { partial = true; break outer; }
       const start = new Date(appt.starts_at);
       const due = dueOffsets({ now, apptStart: start, offsets, sentOffsets: sentMap.get(appt.id) ?? [] });
       const phone = appt.contact?.phone;
@@ -122,6 +134,9 @@ export async function POST(request: Request) {
       };
 
       for (const off of due) {
+        // Checa o orçamento ANTES de reivindicar, pra nunca deixar uma linha
+        // 'pending' órfã ao parar (o próximo cron retoma normalmente).
+        if (Date.now() >= deadline) { partial = true; break outer; }
         const text = renderReminder(textByOffset.get(off) ?? "", vars);
         if (!text.trim()) continue; // sem texto pra esse offset → pula
         // 1) REIVINDICA (status 'pending') ANTES de enviar. Novo offset → INSERT
@@ -193,5 +208,7 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, sent, errors });
+  // `partial: true` = parou pelo orçamento de tempo; o restante fica pro
+  // próximo cron (nada perdido, graças ao claim/dedupe).
+  return NextResponse.json({ ok: true, sent, errors, partial });
 }

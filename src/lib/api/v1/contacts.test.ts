@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   serializeContact,
   findOrCreateContact,
+  findOrCreateContactsBulk,
   ContactError,
 } from './contacts';
 
@@ -112,5 +113,107 @@ describe('findOrCreateContact', () => {
       account_id: 'acc',
       unit_id: 'unit-default',
     });
+  });
+});
+
+describe('findOrCreateContactsBulk', () => {
+  // Mock db: 'unidades' resolves the default unit; 'contacts' answers the
+  // bulk lookup (.in on phone_normalized) with `existing`, and the batch
+  // insert echoes rows back with a synthetic id + generated phone_normalized.
+  function bulkDb(existing: Record<string, string>) {
+    const inserted: { phone: string }[] = [];
+    let lookups = 0;
+    let insertCalls = 0;
+    const db = {
+      from(table: string) {
+        if (table === 'unidades') {
+          const b: Record<string, unknown> = {
+            select: () => b,
+            eq: () => b,
+            order: () => b,
+            limit: () => b,
+            maybeSingle: () =>
+              Promise.resolve({ data: { id: 'unit-default' }, error: null }),
+          };
+          return b;
+        }
+        if (table === 'contacts') {
+          const b: Record<string, unknown> = {
+            select: () => b,
+            eq: () => b,
+            in: (_col: string, keys: string[]) => {
+              lookups++;
+              return Promise.resolve({
+                data: keys
+                  .filter((k) => existing[k])
+                  .map((k) => ({ id: existing[k], phone_normalized: k })),
+                error: null,
+              });
+            },
+            insert: (rows: { phone: string }[]) => {
+              insertCalls++;
+              inserted.push(...rows);
+              return {
+                select: () =>
+                  Promise.resolve({
+                    data: rows.map((r) => ({
+                      id: `new-${r.phone.replace(/\D/g, '')}`,
+                      phone_normalized: r.phone.replace(/\D/g, ''),
+                    })),
+                    error: null,
+                  }),
+              };
+            },
+          };
+          return b;
+        }
+        throw new Error(`unexpected table: ${table}`);
+      },
+    } as unknown as SupabaseClient;
+    return { db, stats: () => ({ inserted, lookups, insertCalls }) };
+  }
+
+  it('reuses existing contacts and creates only the missing ones, keyed by normalized phone', async () => {
+    const { db, stats } = bulkDb({ '14155550002': 'c-existing' });
+
+    const map = await findOrCreateContactsBulk(db, 'acc', 'user', [
+      '+14155550001',
+      '+14155550002',
+      '+14155550003',
+    ]);
+
+    expect(map.get('14155550002')).toBe('c-existing');
+    expect(map.get('14155550001')).toBe('new-14155550001');
+    expect(map.get('14155550003')).toBe('new-14155550003');
+    // One bulk lookup + one bulk insert — not per-contact round-trips.
+    expect(stats().lookups).toBe(1);
+    expect(stats().insertCalls).toBe(1);
+    expect(stats().inserted).toHaveLength(2);
+  });
+
+  it('de-dups by normalized key and drops invalid phones', async () => {
+    const { db, stats } = bulkDb({});
+
+    const map = await findOrCreateContactsBulk(db, 'acc', 'user', [
+      '+14155550001',
+      '+1 (415) 555-0001', // same number, different formatting
+      'not-a-number',
+      '',
+    ]);
+
+    expect(map.size).toBe(1);
+    expect(map.get('14155550001')).toBe('new-14155550001');
+    expect(stats().inserted).toHaveLength(1); // deduped before insert
+  });
+
+  it('returns an empty map when there are no valid phones (no db calls)', async () => {
+    const { db, stats } = bulkDb({});
+    const map = await findOrCreateContactsBulk(db, 'acc', 'user', [
+      'x',
+      '',
+    ]);
+    expect(map.size).toBe(0);
+    expect(stats().lookups).toBe(0);
+    expect(stats().insertCalls).toBe(0);
   });
 });
