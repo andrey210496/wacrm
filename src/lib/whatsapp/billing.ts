@@ -17,6 +17,19 @@ const BILLABLE_CATEGORIES: BillableCategory[] = [
   'authentication',
 ];
 
+/**
+ * Normaliza a categoria de pricing vinda do webhook antes de agregar.
+ * O MM Lite reporta 'marketing_lite' (SKU MARKETING_LITE) — é marketing
+ * para efeito de tarifa/cobrança. Guardamos o valor cru em messages
+ * (auditoria); a normalização é só aqui, na agregação.
+ */
+export function normalizePricingCategory(
+  category: string | null | undefined,
+): string {
+  if (!category) return 'unknown';
+  return category.toLowerCase() === 'marketing_lite' ? 'marketing' : category;
+}
+
 export type ConsumptionRow = {
   unitId: string | null;
   category: string | null;
@@ -61,7 +74,7 @@ export function aggregateConsumption(
   for (const row of rows) {
     const unitId = row.unitId ?? 'sem-unidade';
     // Categoria desconhecida (status sem pricing ainda) cai em 'unknown'.
-    const category = row.category ?? 'unknown';
+    const category = normalizePricingCategory(row.category);
     if (!byUnit.has(unitId)) byUnit.set(unitId, new Map());
     const cats = byUnit.get(unitId)!;
     if (!cats.has(category)) cats.set(category, { total: 0, billable: 0 });

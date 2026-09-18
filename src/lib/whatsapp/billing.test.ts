@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateConsumption } from './billing';
+import {
+  aggregateConsumption,
+  normalizePricingCategory,
+  type ConsumptionRow,
+  type Rate,
+} from './billing';
 
 describe('aggregateConsumption', () => {
   const rates = [
@@ -57,5 +62,36 @@ describe('aggregateConsumption', () => {
     );
     expect(out[0].unitId).toBe('u1'); // 0.5 > 0.1
     expect(out.some((u) => u.unitId === 'sem-unidade')).toBe(true);
+  });
+});
+
+describe('normalizePricingCategory', () => {
+  it('marketing_lite -> marketing', () => {
+    expect(normalizePricingCategory('marketing_lite')).toBe('marketing');
+  });
+  it('marketing/utility passam direto', () => {
+    expect(normalizePricingCategory('marketing')).toBe('marketing');
+    expect(normalizePricingCategory('utility')).toBe('utility');
+  });
+  it('null/undefined -> unknown', () => {
+    expect(normalizePricingCategory(null)).toBe('unknown');
+    expect(normalizePricingCategory(undefined)).toBe('unknown');
+  });
+});
+
+describe('aggregateConsumption com marketing_lite', () => {
+  it('conta marketing_lite sob a tarifa de marketing', () => {
+    const rows: ConsumptionRow[] = [
+      { unitId: 'u1', category: 'marketing_lite', billable: true },
+      { unitId: 'u1', category: 'marketing', billable: true },
+    ];
+    const rates: Rate[] = [{ category: 'marketing', price: 0.35 }];
+    const out = aggregateConsumption(rows, rates);
+    const u1 = out.find((u) => u.unitId === 'u1')!;
+    const marketing = u1.byCategory.find((c) => c.category === 'marketing')!;
+    // As duas mensagens caem em 'marketing' e são cobradas à tarifa.
+    expect(marketing.total).toBe(2);
+    expect(marketing.billable).toBe(2);
+    expect(u1.estimatedCost).toBeCloseTo(0.7, 5);
   });
 });
