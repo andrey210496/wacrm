@@ -146,7 +146,7 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select('id, template_name, template_language, unit_id')
+    .select('id, template_name, template_language, unit_id, header_media_url')
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
@@ -254,6 +254,12 @@ export async function planBroadcastResume(
         : [],
     })),
     rejected: 0,
+    // Persisted media header (onda 3): threaded to Meta by deliverBroadcast
+    // so the drain cron's rebuilt plan sends the same header as the first pass.
+    headerMediaUrl:
+      typeof broadcast.header_media_url === 'string' && broadcast.header_media_url
+        ? broadcast.header_media_url
+        : undefined,
   };
 
   return { plan, remaining, unsendable: unsendable.length };

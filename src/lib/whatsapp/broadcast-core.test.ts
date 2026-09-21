@@ -2,9 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   createBroadcast,
+  deliverBroadcast,
   finalizeBroadcastStatus,
   BroadcastError,
+  type BroadcastPlan,
 } from './broadcast-core';
+
+vi.mock('@/lib/whatsapp/meta-api', () => ({
+  sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid.1' })),
+}));
 
 // Contact resolution and token decryption are exercised elsewhere — stub
 // them so these tests focus on the persistence boundary.
@@ -170,6 +176,76 @@ describe('createBroadcast atomicity (#370)', () => {
     // there is no separate parent insert that could survive as an orphan.
     expect(calls.rpc).toHaveLength(1);
     expect(calls.usedDirectInsert).toBe(0);
+  });
+});
+
+// ============================================================
+// deliverBroadcast — media header (onda 3, opção A). The per-broadcast
+// header media URL must reach Meta via messageParams, and the drain
+// path relies on it being read straight off the plan.
+// ============================================================
+
+/** Minimal Supabase-shaped mock: recipient-row updates + the count
+ *  queries finalizeBroadcastStatus runs, all resolvable via `then`. */
+function deliverDb(): SupabaseClient {
+  return {
+    from() {
+      let status: string | null = null;
+      const b: Record<string, unknown> = {
+        select: () => b,
+        update: () => b,
+        eq: (col: string, val: unknown) => {
+          if (col === 'status') status = val as string;
+          return b;
+        },
+        then: (resolve: (r: { count: number; error: null }) => unknown) =>
+          resolve({ count: status === 'pending' ? 0 : 0, error: null }),
+      };
+      return b;
+    },
+  } as unknown as SupabaseClient;
+}
+
+function basePlan(overrides: Partial<BroadcastPlan> = {}): BroadcastPlan {
+  return {
+    broadcastId: 'b1',
+    templateName: 't',
+    templateLanguage: 'pt_BR',
+    phoneNumberId: 'pn',
+    accessToken: 'tok',
+    templateRow: null,
+    planned: [{ recipientRowId: 'r1', phone: '5511999999999', params: ['X'] }],
+    rejected: 0,
+    ...overrides,
+  };
+}
+
+describe('deliverBroadcast media header', () => {
+  it('repassa o headerMediaUrl do plano ao sendTemplateMessage', async () => {
+    const { sendTemplateMessage } = await import('@/lib/whatsapp/meta-api');
+    const spy = vi.mocked(sendTemplateMessage);
+    spy.mockClear();
+
+    await deliverBroadcast(
+      deliverDb(),
+      basePlan({ headerMediaUrl: 'https://cdn.example.com/promo.jpg' }),
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0].messageParams).toMatchObject({
+      headerMediaUrl: 'https://cdn.example.com/promo.jpg',
+    });
+  });
+
+  it('não passa messageParams quando a campanha não tem mídia', async () => {
+    const { sendTemplateMessage } = await import('@/lib/whatsapp/meta-api');
+    const spy = vi.mocked(sendTemplateMessage);
+    spy.mockClear();
+
+    await deliverBroadcast(deliverDb(), basePlan());
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0].messageParams).toBeUndefined();
   });
 });
 

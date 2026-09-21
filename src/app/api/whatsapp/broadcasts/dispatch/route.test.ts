@@ -37,6 +37,32 @@ describe('POST /dispatch', () => {
     const j = await res.json();
     expect(j).toMatchObject({ broadcast_id: 'b1', total_recipients: 1, rejected: 0 });
   });
+  it('repassa headerMediaUrl pro createBroadcastQueued', async () => {
+    resolveAudienceServer.mockResolvedValue([{ id: 'c1', phone: '+1' }]);
+    createBroadcastQueued.mockClear();
+    const res = await POST(req({
+      template: { name: 't', header_type: 'IMAGE' },
+      audience: { type: 'all' },
+      headerMediaUrl: 'https://cdn.example.com/promo.jpg',
+    }));
+    expect(res.status).toBe(202);
+    const input = (createBroadcastQueued.mock.calls[0] as unknown[])[3] as { headerMediaUrl?: string };
+    expect(input.headerMediaUrl).toBe('https://cdn.example.com/promo.jpg');
+  });
+
+  it('ignora headerMediaUrl não-string', async () => {
+    resolveAudienceServer.mockResolvedValue([{ id: 'c1', phone: '+1' }]);
+    createBroadcastQueued.mockClear();
+    const res = await POST(req({
+      template: { name: 't' },
+      audience: { type: 'all' },
+      headerMediaUrl: 123,
+    }));
+    expect(res.status).toBe(202);
+    const input = (createBroadcastQueued.mock.calls[0] as unknown[])[3] as { headerMediaUrl?: string };
+    expect(input.headerMediaUrl).toBeUndefined();
+  });
+
   it('400 sem template_name', async () => {
     const res = await POST(req({ template: {}, audience: { type: 'all' } }));
     expect(res.status).toBe(400);

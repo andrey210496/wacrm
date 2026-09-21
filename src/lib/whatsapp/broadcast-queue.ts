@@ -24,6 +24,13 @@ export interface CreateBroadcastQueuedInput {
   variables: Record<string, unknown>;
   audience: Record<string, unknown>;
   recipients: QueuedRecipient[];
+  /**
+   * Media URL for an IMAGE/VIDEO/DOCUMENT header. Persisted on the
+   * campaign so BOTH the initial dispatch pass and the drain cron
+   * (which rebuilds the plan from the DB) send the header — see
+   * planBroadcastResume + deliverBroadcast.
+   */
+  headerMediaUrl?: string;
 }
 
 /** Cria o broadcast e insere TODOS os destinatários (pending) em blocos.
@@ -54,6 +61,7 @@ export async function createBroadcastQueued(
       template_language: input.templateLanguage,
       template_variables: input.variables,
       audience_filter: input.audience,
+      header_media_url: input.headerMediaUrl ?? null,
       status: 'sending',
       total_recipients: deduped.length,
       sent_count: 0,

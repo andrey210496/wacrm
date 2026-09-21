@@ -6,12 +6,16 @@ import * as resume from '@/lib/whatsapp/broadcast-resume';
 import * as core from '@/lib/whatsapp/broadcast-core';
 
 function makeDb(recipientInsertError: unknown = null) {
-  const calls = { recipientBatches: 0, broadcastUpdatedFailed: false };
+  const calls = {
+    recipientBatches: 0,
+    broadcastUpdatedFailed: false,
+    broadcastInsert: undefined as Record<string, unknown> | undefined,
+  };
   const db = {
     from(table: string) {
       if (table === 'broadcasts') {
         return {
-          insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: 'b1' }, error: null }) }) }),
+          insert: (row: Record<string, unknown>) => { calls.broadcastInsert = row; return { select: () => ({ single: () => Promise.resolve({ data: { id: 'b1' }, error: null }) }) }; },
           update: (row: Record<string, unknown>) => ({ eq: () => { if (row.status === 'failed') calls.broadcastUpdatedFailed = true; return Promise.resolve({ error: null }); } }),
         };
       }
@@ -44,6 +48,25 @@ describe('createBroadcastQueued', () => {
       name: 'promo', unitId: 'u1', templateName: 't', templateLanguage: 'pt_BR', variables: {}, audience: { type: 'all' }, recipients,
     })).rejects.toThrow(/insert boom|recipient/i);
     expect(calls.broadcastUpdatedFailed).toBe(true);
+  });
+
+  it('persiste header_media_url quando fornecido', async () => {
+    const { db, calls } = makeDb();
+    await createBroadcastQueued(db, 'acc', 'user', {
+      name: 'promo', unitId: 'u1', templateName: 't', templateLanguage: 'pt_BR', variables: {}, audience: { type: 'all' },
+      recipients: [{ contactId: 'c1', phone: '+1', params: [] }],
+      headerMediaUrl: 'https://cdn.example.com/promo.jpg',
+    });
+    expect(calls.broadcastInsert?.header_media_url).toBe('https://cdn.example.com/promo.jpg');
+  });
+
+  it('grava header_media_url null quando ausente (não undefined)', async () => {
+    const { db, calls } = makeDb();
+    await createBroadcastQueued(db, 'acc', 'user', {
+      name: 'promo', unitId: 'u1', templateName: 't', templateLanguage: 'pt_BR', variables: {}, audience: { type: 'all' },
+      recipients: [{ contactId: 'c1', phone: '+1', params: [] }],
+    });
+    expect(calls.broadcastInsert).toHaveProperty('header_media_url', null);
   });
 
   it('dedup por contactId', async () => {

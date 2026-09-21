@@ -79,6 +79,12 @@ export interface BroadcastPlan {
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
+  /**
+   * Per-broadcast media URL for an IMAGE/VIDEO/DOCUMENT header, threaded
+   * into the send as `messageParams.headerMediaUrl`. Undefined for the
+   * public-API path and for text/body-only templates.
+   */
+  headerMediaUrl?: string;
 }
 
 const MAX_RECIPIENTS = 1000;
@@ -308,6 +314,11 @@ export async function deliverBroadcast(
           language: plan.templateLanguage,
           template: plan.templateRow ?? undefined,
           params: recipient.params,
+          // Body params stay in `params` (folded into messageParams.body
+          // downstream); only the media header needs the structured path.
+          messageParams: plan.headerMediaUrl
+            ? { headerMediaUrl: plan.headerMediaUrl }
+            : undefined,
         });
         sentMessageId = result.messageId;
         lastError = null;

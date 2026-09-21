@@ -228,6 +228,34 @@ describe('planBroadcastResume', () => {
     expect(unsendable).toBe(0);
   });
 
+  it('carrega header_media_url da campanha pro plano', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: { ...BROADCAST, header_media_url: 'https://cdn.example.com/promo.jpg' },
+        config: CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBe('https://cdn.example.com/promo.jpg');
+  });
+
+  it('deixa headerMediaUrl indefinido quando a campanha não tem mídia', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBeUndefined();
+  });
+
   it('scopes to failed rows when retrying, and to both for "all"', async () => {
     const failedWrites: PlanWrites = {};
     await planBroadcastResume(

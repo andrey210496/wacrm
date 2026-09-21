@@ -47,6 +47,12 @@ export async function POST(request: Request) {
     const templateLanguage: string = typeof template.language === 'string' ? template.language : 'en_US';
     const variables: Record<string, VariableMapping> = body.variables ?? {};
     const audience: AudienceConfig = body.audience ?? { type: 'all' };
+    // Media header (IMAGE/VIDEO/DOCUMENT). Only a string is honored; a
+    // malformed value is dropped rather than persisted as garbage.
+    const headerMediaUrl: string | undefined =
+      typeof body.headerMediaUrl === 'string' && body.headerMediaUrl.trim()
+        ? body.headerMediaUrl
+        : undefined;
     if (!templateName) return NextResponse.json({ error: 'template_name é obrigatório' }, { status: 400 });
 
     const unitId = await resolveOperatorUnitId(
@@ -87,6 +93,7 @@ export async function POST(request: Request) {
     const { broadcastId, total } = await createBroadcastQueued(supabase, accountId, userId, {
       name: name || `Campanha (${templateName})`,
       unitId, templateName, templateLanguage, variables, audience: audienceFilter, recipients,
+      headerMediaUrl,
     });
 
     // Chuta a 1ª leva com service-role (outlives o request), como o resume.
