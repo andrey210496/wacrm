@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
@@ -194,6 +194,26 @@ export default function BroadcastDetailPage() {
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Live progress while sending: poll every ~4s, stop as soon as the status
+  // settles (or on unmount). A ref tracks the latest status so the interval
+  // callback always sees the current value instead of the one captured when
+  // the effect first ran.
+  const broadcastStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    broadcastStatusRef.current = broadcast?.status ?? null;
+  }, [broadcast?.status]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (broadcastStatusRef.current !== 'sending') {
+        clearInterval(interval);
+        return;
+      }
+      fetchData();
+    }, 4000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   const filteredRecipients = useMemo(
