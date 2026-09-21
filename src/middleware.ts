@@ -110,7 +110,11 @@ export async function middleware(request: NextRequest) {
       // O fleet-summary é puxado pela central (Gestão USAI) server-to-server,
       // autenticado por x-license-secret — não por sessão. (billing/summary e
       // billing/rates continuam protegidos por sessão de admin.)
-      !request.nextUrl.pathname.includes('/billing/fleet-summary')) {
+      !request.nextUrl.pathname.includes('/billing/fleet-summary') &&
+      // O cron de drenagem de broadcast é acionado por cron/central
+      // server-to-server, autenticado por x-cron-secret ou x-license-secret —
+      // não por sessão, igual deadletter/drain.
+      !request.nextUrl.pathname.includes('/broadcasts/drain')) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )
