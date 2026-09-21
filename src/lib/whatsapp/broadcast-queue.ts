@@ -4,6 +4,13 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  claimBroadcastDelivery,
+  releaseBroadcastDelivery,
+  markBroadcastSending,
+  planBroadcastResume,
+} from '@/lib/whatsapp/broadcast-resume';
+import { deliverBroadcast, finalizeBroadcastStatus } from '@/lib/whatsapp/broadcast-core';
 
 const INSERT_BATCH_SIZE = 200;
 
@@ -74,4 +81,33 @@ export async function createBroadcastQueued(
     }
   }
   return { broadcastId: broadcast.id, total: deduped.length };
+}
+
+/** Roda UM passe de entrega de um broadcast: claim → plan(pending) → deliver →
+ *  finalize → release. Best-effort, nunca lança. O claim-lock garante que dois
+ *  passes (chute + cron) nunca enviam em dobro. */
+export async function runDrainPass(
+  admin: SupabaseClient,
+  accountId: string,
+  broadcastId: string,
+): Promise<{ skipped: boolean; remaining: number }> {
+  const claimed = await claimBroadcastDelivery(admin, accountId, broadcastId);
+  if (!claimed) return { skipped: true, remaining: -1 };
+
+  let remaining = 0;
+  try {
+    const { plan, remaining: rem } = await planBroadcastResume(admin, accountId, broadcastId, 'pending');
+    remaining = rem;
+    await markBroadcastSending(admin, broadcastId);
+    await deliverBroadcast(admin, plan);
+  } catch {
+    // 'nothing_to_resume' (sem pending) ou erro de entrega: finaliza abaixo.
+  }
+  try {
+    await finalizeBroadcastStatus(admin, broadcastId);
+  } catch {
+    // best-effort
+  }
+  await releaseBroadcastDelivery(admin, broadcastId);
+  return { skipped: false, remaining };
 }
