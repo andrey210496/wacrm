@@ -100,8 +100,13 @@ export async function runDrainPass(
     remaining = rem;
     await markBroadcastSending(admin, broadcastId);
     await deliverBroadcast(admin, plan);
-  } catch {
-    // 'nothing_to_resume' (sem pending) ou erro de entrega: finaliza abaixo.
+  } catch (err) {
+    // 'nothing_to_resume' (sem pending) é esperado; outros erros (config,
+    // template) logamos pra não virar retry silencioso a cada passe do cron.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/nothing to resume|no recipients/i.test(msg)) {
+      console.error(`[broadcast-drain] passe do broadcast ${broadcastId} falhou:`, msg);
+    }
   }
   try {
     await finalizeBroadcastStatus(admin, broadcastId);
