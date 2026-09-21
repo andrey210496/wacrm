@@ -36,12 +36,16 @@ async function handle(request: Request): Promise<Response> {
   const staleCutoff = new Date(Date.now() - DELIVERY_LOCK_STALE_MS).toISOString();
 
   // Campanhas ainda enviando, sem lock ativo (ou lock stale).
-  const { data: broadcasts } = await admin
+  const { data: broadcasts, error } = await admin
     .from('broadcasts')
     .select('id, account_id')
     .eq('status', 'sending')
     .or(`delivery_locked_at.is.null,delivery_locked_at.lt.${staleCutoff}`)
     .limit(MAX_BROADCASTS_PER_RUN);
+  if (error) {
+    console.error('[broadcast-drain] falha ao listar broadcasts:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   let processed = 0;
   let partial = false;
