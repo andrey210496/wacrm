@@ -18,12 +18,24 @@ import {
   type VariableMapping,
 } from '@/lib/whatsapp/broadcast-audience';
 import { createBroadcastQueued, runDrainPass } from '@/lib/whatsapp/broadcast-queue';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
 
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
     const { supabase, accountId, userId } = await requireRole('agent');
+
+    const limit = checkRateLimit(
+      `broadcast-dispatch:${userId}`,
+      RATE_LIMITS.broadcast
+    );
+    if (!limit.success) return rateLimitResponse(limit);
+
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'Corpo inválido' }, { status: 400 });
