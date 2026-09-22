@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePresence } from "@/hooks/use-presence";
 import { PresenceDot } from "@/components/presence/presence-dot";
 import { presenceLabel } from "@/lib/presence";
+import { resolveAssignee } from "@/lib/inbox/assignee";
 import { cn } from "@/lib/utils";
 import type {
   Conversation,
@@ -885,9 +886,9 @@ export function MessageThread({
     (s) => s.value === conversation.status
   );
   const assignedAgentId = conversation.assigned_agent_id ?? null;
-  const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
-  const assignLabel = assignedAgentId
-    ? (currentAssignee?.full_name ?? t("assigned"))
+  const assignee = resolveAssignee(profiles, assignedAgentId);
+  const assignLabel = assignee.assigned
+    ? (assignee.name ?? t("assigned"))
     : t("assign");
 
   return (
@@ -1020,13 +1021,29 @@ export function MessageThread({
           {/* Assign dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger
+              title={assignLabel}
               className={cn(
-                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                assignedAgentId ? "text-primary" : "text-muted-foreground"
+                "inline-flex items-center justify-center h-7 gap-1.5 px-2 text-xs rounded-md hover:bg-muted",
+                assignee.assigned ? "text-primary" : "text-muted-foreground"
               )}
             >
-              <UserPlus className="h-3 w-3" />
-              <span className="hidden sm:inline">{assignLabel}</span>
+              {assignee.assigned ? (
+                assignee.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={assignee.avatarUrl}
+                    alt=""
+                    className="h-4 w-4 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-[9px] font-semibold text-primary">
+                    {assignee.initials ?? "?"}
+                  </span>
+                )
+              ) : (
+                <UserPlus className="h-3 w-3" />
+              )}
+              <span>{assignLabel}</span>
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
             <DropdownMenuContent

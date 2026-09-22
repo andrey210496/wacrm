@@ -8,7 +8,8 @@ import {
   normalizeConversations,
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
-import type { Conversation, ConversationStatus, Tag } from "@/types";
+import { resolveAssignee } from "@/lib/inbox/assignee";
+import type { Conversation, ConversationStatus, Tag, Profile } from "@/types";
 import { Search, ChevronDown, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -76,6 +77,10 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // Team members, para mostrar QUEM está atendendo cada conversa no item da
+  // lista (mesma resolução do cabeçalho, via resolveAssignee). Carregado uma
+  // vez; RLS já limita às linhas visíveis.
+  const [profiles, setProfiles] = useState<Profile[]>([]);
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -144,6 +149,22 @@ export function ConversationList({
     (async () => {
       const { data } = await supabase.from("tags").select("*").order("name");
       if (!cancelled && data) setTags(data as Tag[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Team members for the "quem está atendendo" indicator on each item.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("user_id, full_name, avatar_url")
+        .order("full_name");
+      if (!cancelled && data) setProfiles(data as Profile[]);
     })();
     return () => {
       cancelled = true;
@@ -424,6 +445,7 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                profiles={profiles}
                 t={t}
               />
             ))}
@@ -438,6 +460,7 @@ interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
+  profiles: Profile[];
   t: ReturnType<typeof useTranslations>;
 }
 
@@ -445,11 +468,20 @@ function ConversationItem({
   conversation,
   isActive,
   onSelect,
+  profiles,
   t,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
   const initials = displayName.charAt(0).toUpperCase();
+  const assignee = resolveAssignee(
+    profiles,
+    conversation.assigned_agent_id ?? null,
+  );
+  // Só exibimos quando há nome resolvido; "atribuído sem nome" (agente fora
+  // do escopo de RLS) fica invisível na lista — o cabeçalho da conversa
+  // ainda mostra "Atribuído".
+  const showAssignee = assignee.assigned && !!assignee.name;
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
@@ -509,6 +541,27 @@ function ConversationItem({
             />
           </div>
         </div>
+
+        {showAssignee && (
+          <div
+            className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"
+            title={assignee.name ?? undefined}
+          >
+            {assignee.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={assignee.avatarUrl}
+                alt=""
+                className="h-3.5 w-3.5 rounded-full object-cover"
+              />
+            ) : (
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary/15 text-[8px] font-semibold text-primary">
+                {assignee.initials}
+              </span>
+            )}
+            <span className="truncate">{assignee.name}</span>
+          </div>
+        )}
       </div>
     </button>
   );
