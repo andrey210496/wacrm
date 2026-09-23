@@ -12,6 +12,13 @@ const ALLOWED_CONTENT_TYPES = new Set([
   "text", "image", "document", "audio", "video", "location", "template", "interactive",
 ]);
 
+type CoexMediaObj = {
+  id?: string;
+  mime_type?: string;
+  caption?: string;
+  filename?: string;
+};
+
 type CoexMsg = {
   from?: string;
   to?: string;
@@ -19,12 +26,50 @@ type CoexMsg = {
   timestamp?: string;
   type?: string;
   text?: { body?: string };
-  image?: { caption?: string };
-  video?: { caption?: string };
-  document?: { caption?: string; filename?: string };
+  image?: CoexMediaObj;
+  video?: CoexMediaObj;
+  document?: CoexMediaObj;
+  audio?: CoexMediaObj;
+  sticker?: CoexMediaObj;
   history_context?: { status?: string };
   [k: string]: unknown;
 };
+
+/** Mídia normalizada de uma mensagem coex: id baixável (Graph) + metadados. */
+export interface CoexMedia {
+  id: string;
+  mime: string | null;
+  filename: string | null;
+  caption: string | null;
+}
+
+/**
+ * Extrai a mídia (id/mime/filename/caption) de uma mensagem coex, quando há
+ * um objeto de mídia COM `id` (image/video/document/audio/sticker). Sem id
+ * (ex.: history media_placeholder) ou tipo sem mídia → null.
+ * O `id` é baixável via Graph `GET /{media-id}` — igual ao inbound oficial.
+ */
+export function extractCoexMedia(msg: CoexMsg): CoexMedia | null {
+  const obj: CoexMediaObj | undefined =
+    msg.type === "image"
+      ? msg.image
+      : msg.type === "video"
+        ? msg.video
+        : msg.type === "document"
+          ? msg.document
+          : msg.type === "audio"
+            ? msg.audio
+            : msg.type === "sticker"
+              ? msg.sticker
+              : undefined;
+  if (!obj || typeof obj.id !== "string" || !obj.id) return null;
+  return {
+    id: obj.id,
+    mime: typeof obj.mime_type === "string" ? obj.mime_type : null,
+    filename: typeof obj.filename === "string" ? obj.filename : null,
+    caption: typeof obj.caption === "string" ? obj.caption : null,
+  };
+}
 
 /** content_type normalizado (mapeia sticker→image; desconhecido→text). */
 export function coexContentType(type: string | undefined): string {
@@ -71,6 +116,12 @@ export type NormalizedEcho = {
   timestamp: number | null;
   contentType: string;
   contentText: string | null;
+  /** Media id baixável (Graph), quando a mensagem é de mídia. */
+  mediaId: string | null;
+  mediaMime: string | null;
+  mediaFilename: string | null;
+  /** Legenda REAL da mídia (null quando não há) — distinta do marcador `[image]`. */
+  mediaCaption: string | null;
 };
 
 /** smb_message_echoes → mensagens ENVIADAS pelo negócio (outbound, via app). */
@@ -79,12 +130,17 @@ export function parseMessageEchoes(value: unknown): NormalizedEcho[] {
   const out: NormalizedEcho[] = [];
   for (const m of v?.message_echoes ?? []) {
     if (!m.id || !m.to) continue;
+    const media = extractCoexMedia(m);
     out.push({
       metaId: m.id,
       contactPhone: m.to,
       timestamp: m.timestamp ? Number(m.timestamp) : null,
       contentType: coexContentType(m.type),
       contentText: extractCoexContent(m),
+      mediaId: media?.id ?? null,
+      mediaMime: media?.mime ?? null,
+      mediaFilename: media?.filename ?? null,
+      mediaCaption: media?.caption ?? null,
     });
   }
   return out;
@@ -98,6 +154,10 @@ export type NormalizedHistoryMsg = {
   contentType: string;
   contentText: string | null;
   status: string;
+  mediaId: string | null;
+  mediaMime: string | null;
+  mediaFilename: string | null;
+  mediaCaption: string | null;
 };
 
 /**
@@ -118,6 +178,7 @@ export function parseHistory(value: unknown, businessPhone: string): NormalizedH
       for (const m of thread.messages ?? []) {
         if (!m.id) continue;
         const direction: "in" | "out" = normalizePhone(m.from) === biz ? "out" : "in";
+        const media = extractCoexMedia(m);
         out.push({
           metaId: m.id,
           contactPhone,
@@ -126,6 +187,10 @@ export function parseHistory(value: unknown, businessPhone: string): NormalizedH
           contentType: coexContentType(m.type),
           contentText: extractCoexContent(m),
           status: mapHistoryStatus(m.history_context?.status),
+          mediaId: media?.id ?? null,
+          mediaMime: media?.mime ?? null,
+          mediaFilename: media?.filename ?? null,
+          mediaCaption: media?.caption ?? null,
         });
       }
     }

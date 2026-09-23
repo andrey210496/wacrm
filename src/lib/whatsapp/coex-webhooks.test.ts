@@ -5,8 +5,35 @@ import {
   parseAppStateSync,
   coexContentType,
   extractCoexContent,
+  extractCoexMedia,
   mapHistoryStatus,
 } from "./coex-webhooks";
+
+describe("extractCoexMedia", () => {
+  it("extrai id/mime/filename/caption de imagem, vídeo, documento e áudio", () => {
+    expect(
+      extractCoexMedia({ type: "image", image: { id: "M1", mime_type: "image/jpeg", caption: "foto" } }),
+    ).toEqual({ id: "M1", mime: "image/jpeg", filename: null, caption: "foto" });
+    expect(
+      extractCoexMedia({ type: "video", video: { id: "M2", mime_type: "video/mp4" } }),
+    ).toEqual({ id: "M2", mime: "video/mp4", filename: null, caption: null });
+    expect(
+      extractCoexMedia({ type: "document", document: { id: "M3", mime_type: "application/pdf", filename: "nf.pdf" } }),
+    ).toEqual({ id: "M3", mime: "application/pdf", filename: "nf.pdf", caption: null });
+    expect(
+      extractCoexMedia({ type: "audio", audio: { id: "M4", mime_type: "audio/ogg" } }),
+    ).toEqual({ id: "M4", mime: "audio/ogg", filename: null, caption: null });
+  });
+  it("sticker conta como mídia (renderiza como imagem)", () => {
+    expect(extractCoexMedia({ type: "sticker", sticker: { id: "M5", mime_type: "image/webp" } }))
+      .toEqual({ id: "M5", mime: "image/webp", filename: null, caption: null });
+  });
+  it("texto e mídia sem id → null", () => {
+    expect(extractCoexMedia({ type: "text", text: { body: "oi" } })).toBeNull();
+    expect(extractCoexMedia({ type: "image", image: { caption: "sem id" } })).toBeNull();
+    expect(extractCoexMedia({ type: "image" })).toBeNull();
+  });
+});
 
 describe("coexContentType / extractCoexContent / mapHistoryStatus", () => {
   it("normaliza tipos e mapeia sticker→image, desconhecido→text", () => {
@@ -46,6 +73,19 @@ describe("parseMessageEchoes", () => {
     expect(parseMessageEchoes({ message_echoes: [{ from: "x", type: "text" }] })).toEqual([]);
     expect(parseMessageEchoes({})).toEqual([]);
   });
+  it("echo de mídia carrega mediaId/mediaMime/mediaFilename/mediaCaption", () => {
+    const out = parseMessageEchoes({
+      message_echoes: [
+        { to: "5511777", id: "wamid.IMG", type: "image", image: { id: "MID", mime_type: "image/jpeg", caption: "veja" } },
+        { to: "5511666", id: "wamid.DOC", type: "document", document: { id: "DID", mime_type: "application/pdf", filename: "nf.pdf" } },
+        { to: "5511555", id: "wamid.TXT", type: "text", text: { body: "oi" } },
+      ],
+    });
+    expect(out[0]).toMatchObject({ metaId: "wamid.IMG", mediaId: "MID", mediaMime: "image/jpeg", mediaFilename: null, mediaCaption: "veja" });
+    expect(out[1]).toMatchObject({ metaId: "wamid.DOC", mediaId: "DID", mediaMime: "application/pdf", mediaFilename: "nf.pdf", mediaCaption: null });
+    // Texto não tem mídia.
+    expect(out[2]).toMatchObject({ metaId: "wamid.TXT", mediaId: null, mediaMime: null, mediaFilename: null, mediaCaption: null });
+  });
 });
 
 describe("parseHistory", () => {
@@ -77,6 +117,14 @@ describe("parseHistory", () => {
   });
   it("history vazio → []", () => {
     expect(parseHistory({}, "5511999")).toEqual([]);
+  });
+  it("mensagem de mídia no history carrega mediaId/mediaMime", () => {
+    const out = parseHistory({
+      history: [{ threads: [{ id: "5511888", messages: [
+        { from: "5511888", id: "wamid.IN_IMG", type: "image", image: { id: "HID", mime_type: "image/png" } },
+      ] }] }],
+    }, "5511999");
+    expect(out[0]).toMatchObject({ metaId: "wamid.IN_IMG", mediaId: "HID", mediaMime: "image/png", contentType: "image" });
   });
 });
 

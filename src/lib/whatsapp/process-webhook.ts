@@ -20,6 +20,7 @@ import {
   parseHistory,
   parseAppStateSync,
 } from '@/lib/whatsapp/coex-webhooks'
+import { resolveCoexMediaUrl } from '@/lib/whatsapp/coex-media'
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1092,11 +1093,17 @@ export async function ingestNormalizedInbound(params: {
 /** Resolve o whatsapp_config (conta/unidade/dono) por phone_number_id. */
 async function resolveCoexConfig(
   phoneNumberId: string | undefined,
-): Promise<{ account_id: string; unit_id: string; user_id: string } | null> {
+): Promise<{
+  account_id: string
+  unit_id: string
+  user_id: string
+  access_token: string
+  mirror_inbound_media: boolean | null
+} | null> {
   if (!phoneNumberId) return null
   const { data, error } = await supabaseAdmin()
     .from('whatsapp_config')
-    .select('account_id, unit_id, user_id')
+    .select('account_id, unit_id, user_id, access_token, mirror_inbound_media')
     .eq('phone_number_id', phoneNumberId)
     .limit(1)
     .maybeSingle()
@@ -1116,6 +1123,11 @@ async function insertCoexMessage(params: {
   status: string
   viaBusinessApp: boolean
   timestamp: number | null
+  /** Tipo do conteúdo; default 'text'. Mídia resolvida passa 'image'/'video'/… */
+  contentType?: string
+  /** URL da mídia espelhada (bucket durável) ou proxy; null = sem mídia. */
+  mediaUrl?: string | null
+  mediaType?: string | null
 }): Promise<boolean> {
   const createdAt =
     params.timestamp && params.timestamp > 0
@@ -1127,9 +1139,10 @@ async function insertCoexMessage(params: {
       {
         conversation_id: params.conversationId,
         sender_type: params.senderType,
-        // Mídia não reprocessada no coex v1 → tudo como texto (legenda/rótulo).
-        content_type: 'text',
+        content_type: params.contentType ?? 'text',
         content_text: params.contentText,
+        media_url: params.mediaUrl ?? null,
+        media_type: params.mediaType ?? null,
         message_id: params.metaId,
         status: params.status,
         via_business_app: params.viaBusinessApp,
@@ -1155,6 +1168,58 @@ async function touchConversationSummary(conversationId: string, text: string | n
     .eq('id', conversationId)
 }
 
+/**
+ * Resolve os campos de mídia de uma mensagem coex para o insert. Quando há
+ * `mediaId`, baixa+espelha (reusa o caminho oficial) e devolve content_type
+ * real + media_url + legenda. Se não há mídia OU a resolução falha, cai no
+ * marcador atual (content_type text, sem media_url) — sem regressão.
+ */
+async function coexMediaFields(
+  config: {
+    account_id: string
+    access_token: string
+    mirror_inbound_media: boolean | null
+  },
+  m: {
+    contentType: string
+    contentText: string | null
+    mediaId: string | null
+    mediaMime: string | null
+    mediaFilename: string | null
+    mediaCaption: string | null
+    timestamp: number | null
+  },
+): Promise<{
+  contentType: string
+  contentText: string | null
+  mediaUrl: string | null
+  mediaType: string | null
+}> {
+  if (!m.mediaId) {
+    return { contentType: 'text', contentText: m.contentText, mediaUrl: null, mediaType: null }
+  }
+  const mediaUrl = await resolveCoexMediaUrl({
+    mediaId: m.mediaId,
+    accessToken: decrypt(config.access_token),
+    accountId: config.mirror_inbound_media === false ? null : config.account_id,
+    storage: supabaseAdmin().storage,
+    fileName: m.mediaFilename,
+    messageTimestamp: m.timestamp,
+  })
+  if (!mediaUrl) {
+    // Falha best-effort → mantém o marcador (usuário ainda vê o tipo).
+    return { contentType: 'text', contentText: m.contentText, mediaUrl: null, mediaType: null }
+  }
+  return {
+    // contentType já vem mapeado (sticker→image) por coexContentType.
+    contentType: m.contentType,
+    // Legenda REAL da mídia (null quando não há) — a bolha renderiza a mídia.
+    contentText: m.mediaCaption,
+    mediaUrl,
+    mediaType: m.mediaMime,
+  }
+}
+
 async function handleMessageEchoes(value: unknown): Promise<void> {
   const v = value as { metadata?: { phone_number_id?: string } }
   const config = await resolveCoexConfig(v.metadata?.phone_number_id)
@@ -1170,15 +1235,20 @@ async function handleMessageEchoes(value: unknown): Promise<void> {
     if (!contactOutcome) continue
     const convResult = await findOrCreateConversation(config.account_id, config.unit_id, config.user_id, contactOutcome.contact.id)
     if (!convResult) continue
+    const mf = await coexMediaFields(config, e)
     const inserted = await insertCoexMessage({
       conversationId: convResult.conversation.id,
       senderType: 'agent',
-      contentText: e.contentText,
+      contentText: mf.contentText,
       metaId: e.metaId,
       status: 'sent',
       viaBusinessApp: true,
       timestamp: e.timestamp,
+      contentType: mf.contentType,
+      mediaUrl: mf.mediaUrl,
+      mediaType: mf.mediaType,
     })
+    // Resumo da conversa: o marcador/legenda original (list preview).
     if (inserted) await touchConversationSummary(convResult.conversation.id, e.contentText, e.timestamp)
   }
 }
@@ -1211,14 +1281,18 @@ async function handleHistory(value: unknown): Promise<void> {
 
     let newest: { text: string | null; ts: number | null } | null = null
     for (const m of items) {
+      const mf = await coexMediaFields(config, m)
       await insertCoexMessage({
         conversationId: convResult.conversation.id,
         senderType: m.direction === 'out' ? 'agent' : 'customer',
-        contentText: m.contentText,
+        contentText: mf.contentText,
         metaId: m.metaId,
         status: m.status,
         viaBusinessApp: m.direction === 'out',
         timestamp: m.timestamp,
+        contentType: mf.contentType,
+        mediaUrl: mf.mediaUrl,
+        mediaType: mf.mediaType,
       })
       if (!newest || (m.timestamp ?? 0) > (newest.ts ?? 0)) {
         newest = { text: m.contentText, ts: m.timestamp }
