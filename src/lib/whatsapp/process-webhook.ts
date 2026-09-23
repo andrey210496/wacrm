@@ -18,6 +18,7 @@ import {
 import {
   parseMessageEchoes,
   parseMessageEdits,
+  parseEditMessage,
   parseHistory,
   parseAppStateSync,
   type NormalizedEdit,
@@ -75,6 +76,12 @@ interface WhatsAppMessage {
   button?: { text?: string; payload?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /**
+   * Presente quando type==='edit': a mensagem editada. Mesma estrutura do echo
+   * de coex (edit.{original_message_id, message}). A Meta entrega edições no
+   * webhook `messages` padrão também (não só em smb_message_echoes).
+   */
+  edit?: { original_message_id?: string; message?: Record<string, unknown> }
   /**
    * Presente quando a conversa começou por um anúncio Click-to-WhatsApp
    * (Feature C). Abre a janela grátis de 72h e marca a origem do lead.
@@ -245,6 +252,13 @@ export async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
+
+        // Edição de mensagem (type='edit'): atualiza a mensagem ORIGINAL em vez
+        // de criar uma bolha "[Unsupported message type: edit]".
+        if (message.type === 'edit') {
+          await applyOfficialEdit(config, message)
+          continue
+        }
 
         await processMessage(
           message,
@@ -1273,6 +1287,56 @@ async function applyCoexEdit(
     mediaType: mf.mediaType,
     editedAt,
   })
+}
+
+/**
+ * Edição chegando pelo webhook `messages` PADRÃO (não só coex): a Meta entrega
+ * mensagens editadas em `value.messages[]` com type='edit' + a mesma estrutura
+ * edit.{original_message_id, message}. Atualiza a mensagem original (por
+ * message_id) com o conteúdo novo em vez de virar bolha "[Unsupported message
+ * type: edit]". Best-effort — nunca lança.
+ */
+async function applyOfficialEdit(
+  config: {
+    account_id: string
+    access_token: string
+    mirror_inbound_media: boolean | null
+  },
+  message: WhatsAppMessage,
+): Promise<void> {
+  const core = parseEditMessage(
+    message as unknown as Parameters<typeof parseEditMessage>[0],
+  )
+  if (!core) {
+    // Estrutura inesperada — melhor não fazer nada do que mostrar o marcador.
+    // Loga só as CHAVES (não o conteúdo) pra diagnosticar o shape real.
+    console.error(
+      '[edit] messages type=edit sem edit.{original_message_id,message}; chaves:',
+      Object.keys(message),
+      message.edit ? Object.keys(message.edit) : 'no-edit',
+    )
+    return
+  }
+  const mf = await coexMediaFields(config, {
+    contentType: core.contentType,
+    contentText: core.contentText,
+    mediaId: core.mediaId,
+    mediaMime: core.mediaMime,
+    mediaFilename: core.mediaFilename,
+    mediaCaption: core.mediaCaption,
+    timestamp: message.timestamp ? Number(message.timestamp) : null,
+  })
+  const { error } = await supabaseAdmin()
+    .from('messages')
+    .update({
+      content_type: mf.contentType,
+      content_text: mf.contentText,
+      media_url: mf.mediaUrl,
+      media_type: mf.mediaType,
+      edited_at: new Date().toISOString(),
+    })
+    .eq('message_id', core.originalMessageId)
+  if (error) console.error('[edit] update de edição (messages) falhou:', error.message)
 }
 
 async function handleMessageEchoes(value: unknown): Promise<void> {

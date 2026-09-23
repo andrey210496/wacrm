@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseMessageEchoes,
   parseMessageEdits,
+  parseEditMessage,
   parseHistory,
   parseAppStateSync,
   coexContentType,
@@ -9,6 +10,39 @@ import {
   extractCoexMedia,
   mapHistoryStatus,
 } from "./coex-webhooks";
+
+describe("parseEditMessage", () => {
+  it("extrai o núcleo de uma edição de texto", () => {
+    expect(
+      parseEditMessage({
+        type: "edit",
+        edit: { original_message_id: "O", message: { type: "text", text: { body: "novo texto" } } },
+      }),
+    ).toEqual({
+      originalMessageId: "O",
+      contentType: "text",
+      contentText: "novo texto",
+      mediaId: null,
+      mediaMime: null,
+      mediaFilename: null,
+      mediaCaption: null,
+    });
+  });
+  it("extrai o núcleo de uma edição de mídia", () => {
+    expect(
+      parseEditMessage({
+        type: "edit",
+        edit: { original_message_id: "O2", message: { type: "image", image: { id: "M", mime_type: "image/jpeg", caption: "leg" } } },
+      }),
+    ).toMatchObject({ originalMessageId: "O2", contentType: "image", mediaId: "M", mediaMime: "image/jpeg", mediaCaption: "leg" });
+  });
+  it("null quando falta edit, original_message_id, message, ou não é edição", () => {
+    expect(parseEditMessage({ type: "edit" })).toBeNull();
+    expect(parseEditMessage({ type: "edit", edit: { message: { type: "text" } } })).toBeNull();
+    expect(parseEditMessage({ type: "edit", edit: { original_message_id: "O" } })).toBeNull();
+    expect(parseEditMessage({ type: "text", text: { body: "x" } })).toBeNull();
+  });
+});
 
 describe("parseMessageEdits", () => {
   it("extrai edição de texto: original_message_id + conteúdo novo", () => {

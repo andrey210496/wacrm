@@ -168,31 +168,56 @@ export type NormalizedEdit = {
   mediaCaption: string | null;
 };
 
+/** Núcleo de uma edição: id da original + conteúdo novo (texto/mídia). */
+export interface EditContent {
+  originalMessageId: string;
+  contentType: string;
+  contentText: string | null;
+  mediaId: string | null;
+  mediaMime: string | null;
+  mediaFilename: string | null;
+  mediaCaption: string | null;
+}
+
+/**
+ * Extrai o núcleo de uma mensagem type='edit' (o `edit.{original_message_id,
+ * message}`). Serve tanto para o echo de coex quanto para o webhook `messages`
+ * padrão da Meta (que usa a mesma estrutura de edição). `null` quando não é uma
+ * edição válida (sem edit / original_message_id / message).
+ */
+export function parseEditMessage(m: CoexMsg): EditContent | null {
+  const originalId = m.edit?.original_message_id;
+  const inner = m.edit?.message;
+  if (!originalId || !inner) return null;
+  const media = extractCoexMedia(inner);
+  return {
+    originalMessageId: originalId,
+    contentType: coexContentType(inner.type),
+    contentText: extractCoexContent(inner),
+    mediaId: media?.id ?? null,
+    mediaMime: media?.mime ?? null,
+    mediaFilename: media?.filename ?? null,
+    mediaCaption: media?.caption ?? null,
+  };
+}
+
 /**
  * smb_message_echoes com type='edit' → edições de mensagens que o negócio já
- * havia enviado. O conteúdo novo vem em `edit.message` (mesmo formato de uma
- * mensagem), então reusamos os extractores. O handler atualiza a original.
+ * havia enviado. O conteúdo novo vem em `edit.message`; reusa parseEditMessage.
+ * O handler atualiza a original.
  */
 export function parseMessageEdits(value: unknown): NormalizedEdit[] {
   const v = value as { message_echoes?: CoexMsg[] } | null;
   const out: NormalizedEdit[] = [];
   for (const m of v?.message_echoes ?? []) {
     if (m.type !== "edit") continue;
-    const originalId = m.edit?.original_message_id;
-    const inner = m.edit?.message;
-    if (!m.id || !m.to || !originalId || !inner) continue;
-    const media = extractCoexMedia(inner);
+    const core = parseEditMessage(m);
+    if (!m.id || !m.to || !core) continue;
     out.push({
       editId: m.id,
-      originalMessageId: originalId,
       contactPhone: m.to,
       timestamp: m.timestamp ? Number(m.timestamp) : null,
-      contentType: coexContentType(inner.type),
-      contentText: extractCoexContent(inner),
-      mediaId: media?.id ?? null,
-      mediaMime: media?.mime ?? null,
-      mediaFilename: media?.filename ?? null,
-      mediaCaption: media?.caption ?? null,
+      ...core,
     });
   }
   return out;
