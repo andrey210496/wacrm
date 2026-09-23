@@ -264,7 +264,7 @@ export function WhatsAppConfig() {
         await runHealthCheck(nextActive, Boolean(activeCfg));
       } catch (err) {
         console.error('fetchConfig error:', err);
-        toast.error('Failed to load WhatsApp configuration');
+        toast.error('Falha ao carregar a configuração do WhatsApp');
       } finally {
         setLoading(false);
       }
@@ -334,11 +334,11 @@ export function WhatsAppConfig() {
       return;
     }
     if (!phoneNumberId.trim()) {
-      toast.error('Phone Number ID is required');
+      toast.error('O Phone Number ID é obrigatório');
       return;
     }
     if (!config && (!accessToken.trim() || !tokenEdited)) {
-      toast.error('Access Token is required for initial setup');
+      toast.error('O Access Token é obrigatório na configuração inicial');
       return;
     }
 
@@ -369,7 +369,7 @@ export function WhatsAppConfig() {
         // server. But our POST handler requires an access_token to verify
         // with Meta. If the user didn't change the token, we need to signal
         // that. Simplest: require token re-entry if they're updating.
-        toast.error('Please re-enter the Access Token to save changes');
+        toast.error('Reinsira o Access Token para salvar as alterações');
         setSaving(false);
         return;
       }
@@ -424,7 +424,7 @@ export function WhatsAppConfig() {
       if (accountId) await fetchConfig(accountId, activeUnitId);
     } catch (err) {
       console.error('Save error:', err);
-      toast.error('Failed to save configuration');
+      toast.error('Falha ao salvar a configuração');
     } finally {
       setSaving(false);
     }
@@ -458,7 +458,7 @@ export function WhatsAppConfig() {
     } catch (err) {
       console.error('Test connection error:', err);
       setConnectionStatus('disconnected');
-      toast.error('Connection test failed. Check network and try again.');
+      toast.error('Falha no teste de conexão. Verifique a rede e tente de novo.');
     } finally {
       setTesting(false);
     }
@@ -474,7 +474,7 @@ export function WhatsAppConfig() {
       const data = (await res.json()) as RegistrationProbe;
       setRegistrationProbe(data);
       if (data.live) {
-        toast.success('Number is fully wired — Meta is delivering events.');
+        toast.success('Número totalmente conectado — a Meta está entregando eventos.');
       } else {
         toast.error(
           'Number is not fully registered. See the checks below for which step failed.',
@@ -484,7 +484,7 @@ export function WhatsAppConfig() {
       if (accountId) await fetchConfig(accountId, activeUnitId);
     } catch (err) {
       console.error('verify-registration failed:', err);
-      toast.error('Could not reach the verification endpoint.');
+      toast.error('Não foi possível acessar o endpoint de verificação.');
     } finally {
       setVerifyingRegistration(false);
     }
@@ -509,13 +509,13 @@ export function WhatsAppConfig() {
         return;
       }
 
-      toast.success('Configuration cleared. You can now re-enter your credentials.');
+      toast.success('Configuração limpa. Agora você pode reinserir suas credenciais.');
       // Refetch so the per-unit status list drops this unit's number too;
       // keeps the same unit selected so the admin can re-enter right away.
       if (accountId) await fetchConfig(accountId, activeUnitId);
     } catch (err) {
       console.error('Reset error:', err);
-      toast.error('Failed to reset configuration');
+      toast.error('Falha ao redefinir a configuração');
     } finally {
       setResetting(false);
     }
@@ -523,7 +523,7 @@ export function WhatsAppConfig() {
 
   function handleCopyWebhookUrl() {
     navigator.clipboard.writeText(webhookUrl);
-    toast.success('Webhook URL copied to clipboard');
+    toast.success('URL do webhook copiada');
   }
 
   if (loading) {

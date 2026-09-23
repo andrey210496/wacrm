@@ -269,7 +269,7 @@ export function MessageComposer({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (data.code === "ai_not_configured") {
-          toast.error("AI isn't set up yet — enable it in Settings → AI Assistant.");
+          toast.error("A IA ainda não está configurada — ative em Configurações → Assistente de IA.");
         } else {
           toast.error(data.error ?? "Couldn't draft a reply.");
         }
@@ -277,7 +277,7 @@ export function MessageComposer({
       }
       const draftText = typeof data.draft === "string" ? data.draft.trim() : "";
       if (!draftText) {
-        toast.error("The assistant didn't return a reply.");
+        toast.error("O assistente não retornou uma resposta.");
         return;
       }
       setText(draftText);
@@ -292,7 +292,7 @@ export function MessageComposer({
         }
       });
     } catch {
-      toast.error("Couldn't reach the AI assistant.");
+      toast.error("Não foi possível conectar ao assistente de IA.");
     } finally {
       setDrafting(false);
     }
@@ -431,7 +431,7 @@ export function MessageComposer({
       });
       if (file.size === 0) return; // cancelled / empty take
       if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
-        toast.error("Recording is too long (over 16 MB).");
+        toast.error("A gravação é muito longa (acima de 16 MB).");
         return;
       }
       setBusy(true);
@@ -451,7 +451,7 @@ export function MessageComposer({
   const startRecording = useCallback(async () => {
     if (inputsDisabled || busy || recording) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
-      toast.error("Voice recording isn't supported in this browser.");
+      toast.error("A gravação de voz não é suportada neste navegador.");
       return;
     }
     try {
@@ -478,7 +478,7 @@ export function MessageComposer({
     } catch {
       void recorderRef.current?.stop().catch(() => {});
       recorderRef.current = null;
-      toast.error("Microphone access denied or unavailable.");
+      toast.error("Acesso ao microfone negado ou indisponível.");
     }
   }, [inputsDisabled, busy, recording, finalizeRecording]);
 
