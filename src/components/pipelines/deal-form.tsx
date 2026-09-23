@@ -43,6 +43,17 @@ interface DealFormProps {
   pipelineId: string;
   stages: PipelineStage[];
   defaultStageId?: string;
+  /**
+   * Contato pré-selecionado ao CRIAR (ex.: abrir o form de dentro do chat, já
+   * vinculado ao contato da conversa). Inclui `unit_id` para carimbar o
+   * negócio na unidade certa. Ignorado ao editar (o negócio já tem contato).
+   */
+  presetContact?: {
+    id: string;
+    name?: string | null;
+    phone?: string | null;
+    unit_id?: string | null;
+  };
   onSaved: () => void;
 }
 
@@ -53,6 +64,7 @@ export function DealForm({
   pipelineId,
   stages,
   defaultStageId,
+  presetContact,
   onSaved,
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
@@ -106,15 +118,27 @@ export function DealForm({
       setTitle("");
       setValue("");
       setCurrency(defaultCurrency);
-      setContactId("");
-      setSelectedContact(null);
-      setContactQuery("");
+      // Contato pré-selecionado (ex.: criar negócio de dentro do chat).
+      if (presetContact) {
+        setContactId(presetContact.id);
+        setSelectedContact({
+          id: presetContact.id,
+          name: presetContact.name ?? null,
+          phone: presetContact.phone ?? null,
+          unit_id: presetContact.unit_id ?? null,
+        } as Contact);
+        setContactQuery("");
+      } else {
+        setContactId("");
+        setSelectedContact(null);
+        setContactQuery("");
+      }
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
       setNotes("");
     }
-  }, [open, deal, defaultStageId, stages, defaultCurrency]);
+  }, [open, deal, defaultStageId, stages, defaultCurrency, presetContact]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Perfis (equipe) são poucos — carrega inteiro. Contatos NÃO: buscados abaixo.

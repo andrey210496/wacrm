@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import type { Contact, Deal, ContactNote, Tag, PipelineStage } from "@/types";
+import { DealForm } from "@/components/pipelines/deal-form";
 import {
   Phone,
   Mail,
@@ -58,6 +59,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [svcList, setSvcList] = useState<Service[]>([]);
   const [resList, setResList] = useState<Resource[]>([]);
+  // Criar negócio no pipeline de dentro do chat (reusa o DealForm).
+  const [dealFormOpen, setDealFormOpen] = useState(false);
+  const [dealPipelineId, setDealPipelineId] = useState<string | null>(null);
+  const [dealStages, setDealStages] = useState<PipelineStage[]>([]);
+  // null = ainda carregando; false = a conta não tem pipeline (botão desabilitado).
+  const [hasPipeline, setHasPipeline] = useState<boolean | null>(null);
+  const [openingDeal, setOpeningDeal] = useState(false);
 
   const openSchedule = useCallback(async () => {
     if (!contact?.unit_id) return;
@@ -162,6 +170,61 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
     },
     [contact, refetchContactTags],
   );
+
+  // Re-lê só os negócios do contato após criar um pelo chat.
+  const refetchDeals = useCallback(async () => {
+    if (!contact) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("deals")
+      .select("*, stage:pipeline_stages(*)")
+      .eq("contact_id", contact.id)
+      .order("created_at", { ascending: false });
+    if (data) setDeals(data);
+  }, [contact]);
+
+  // Abre o form de negócio já vinculado ao contato da conversa: carrega o
+  // primeiro pipeline da conta + suas etapas e abre o DealForm.
+  const openDealForm = useCallback(async () => {
+    if (!contact) return;
+    setOpeningDeal(true);
+    try {
+      const supabase = createClient();
+      const { data: pipes } = await supabase
+        .from("pipelines")
+        .select("id")
+        .order("created_at")
+        .limit(1);
+      const pipelineId = pipes?.[0]?.id as string | undefined;
+      if (!pipelineId) {
+        setHasPipeline(false);
+        return;
+      }
+      const { data: stages } = await supabase
+        .from("pipeline_stages")
+        .select("*")
+        .eq("pipeline_id", pipelineId)
+        .order("position");
+      setDealPipelineId(pipelineId);
+      setDealStages((stages ?? []) as PipelineStage[]);
+      setDealFormOpen(true);
+    } finally {
+      setOpeningDeal(false);
+    }
+  }, [contact]);
+
+  // Descobre (uma vez) se a conta tem algum pipeline — pra habilitar o botão.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("pipelines").select("id").limit(1);
+      if (!cancelled) setHasPipeline((data?.length ?? 0) > 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load on contact change. setContactData/setTags run inside async
   // Supabase callbacks, not synchronously in the effect body.
@@ -396,9 +459,26 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
           {/* Active Deals */}
           <div>
-            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <DollarSign className="h-3 w-3" />
-              {tSidebar("deals")}
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <DollarSign className="h-3 w-3" />
+                {tSidebar("deals")}
+              </div>
+              {/* Criar negócio no pipeline — vinculado a este contato (reusa DealForm). */}
+              <button
+                type="button"
+                onClick={openDealForm}
+                disabled={openingDeal || hasPipeline === false}
+                title={
+                  hasPipeline === false
+                    ? "Crie um pipeline em Pipelines primeiro"
+                    : undefined
+                }
+                className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" />
+                Negócio
+              </button>
             </div>
             <div className="mt-2 space-y-2">
               {deals.length === 0 ? (
@@ -499,6 +579,26 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
       {canManageReminders && contact.unit_id && (
         <RemindersConfigDialog open={remindersOpen} onOpenChange={setRemindersOpen} unitId={contact.unit_id} />
+      )}
+
+      {/* Criar negócio — contato da conversa já preenchido. */}
+      {dealPipelineId && (
+        <DealForm
+          open={dealFormOpen}
+          onOpenChange={setDealFormOpen}
+          pipelineId={dealPipelineId}
+          stages={dealStages}
+          presetContact={{
+            id: contact.id,
+            name: contact.name ?? null,
+            phone: contact.phone ?? null,
+            unit_id: contact.unit_id ?? null,
+          }}
+          onSaved={() => {
+            setDealFormOpen(false);
+            refetchDeals();
+          }}
+        />
       )}
     </div>
   );
