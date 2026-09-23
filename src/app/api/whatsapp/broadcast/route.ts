@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     if (recipients.length > MAX_RECIPIENTS_PER_CALL) {
       return NextResponse.json(
         {
-          error: `Too many recipients in one call (max ${MAX_RECIPIENTS_PER_CALL}). Use the campaign flow, which batches and can resume.`,
+          error: `Muitos destinatários em uma só chamada (máx ${MAX_RECIPIENTS_PER_CALL}). Use o fluxo de campanha, que envia em lotes e pode retomar.`,
         },
         { status: 400 }
       )
@@ -207,7 +207,7 @@ export async function POST(request: Request) {
         results.push({
           phone: recipient.phone,
           status: 'failed',
-          error: 'Invalid phone number format',
+          error: 'Formato de número de telefone inválido',
         })
         failedCount++
         continue

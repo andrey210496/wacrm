@@ -143,7 +143,7 @@ export async function GET(request: Request) {
         {
           connected: false,
           reason: 'no_config',
-          message: 'No WhatsApp configuration saved yet. Fill in the form and click Save Configuration.',
+          message: 'Nenhuma configuração do WhatsApp salva ainda. Preencha o formulário e clique em Salvar configuração.',
         },
         { status: 200 }
       )
@@ -218,7 +218,7 @@ export async function POST(request: Request) {
     const accountId = await resolveAccountId(supabase, user.id)
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
@@ -253,7 +253,7 @@ export async function POST(request: Request) {
     if (pin !== undefined && pin !== null && pin !== '') {
       if (typeof pin !== 'string' || !/^\d{6}$/.test(pin)) {
         return NextResponse.json(
-          { error: 'PIN must be exactly 6 digits.' },
+          { error: 'O PIN deve ter exatamente 6 dígitos.' },
           { status: 400 }
         )
       }
@@ -279,7 +279,7 @@ export async function POST(request: Request) {
     if (claimedError) {
       console.error('Error checking phone_number_id ownership:', claimedError)
       return NextResponse.json(
-        { error: 'Failed to validate configuration' },
+        { error: 'Falha ao validar a configuração' },
         { status: 500 }
       )
     }
@@ -441,7 +441,7 @@ export async function POST(request: Request) {
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
         return NextResponse.json(
-          { error: 'Failed to update configuration' },
+          { error: 'Falha ao atualizar a configuração' },
           { status: 500 }
         )
       }
@@ -462,7 +462,7 @@ export async function POST(request: Request) {
       if (insertError) {
         console.error('Error inserting whatsapp_config:', insertError)
         return NextResponse.json(
-          { error: 'Failed to save configuration' },
+          { error: 'Falha ao salvar a configuração' },
           { status: 500 }
         )
       }
@@ -521,7 +521,7 @@ export async function DELETE(request: Request) {
     const accountId = await resolveAccountId(supabase, user.id)
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
@@ -555,7 +555,7 @@ export async function DELETE(request: Request) {
     if (deleteError) {
       console.error('Error deleting whatsapp_config:', deleteError)
       return NextResponse.json(
-        { error: 'Failed to delete configuration' },
+        { error: 'Falha ao excluir a configuração' },
         { status: 500 }
       )
     }

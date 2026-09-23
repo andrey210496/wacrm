@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       // No Meta ID yet — usually a sending/failed agent message. We can't
       // tell Meta to react to a message it never received.
       return NextResponse.json(
-        { error: 'Cannot react to a message that has not been sent to WhatsApp' },
+        { error: 'Não é possível reagir a uma mensagem que ainda não foi enviada ao WhatsApp' },
         { status: 400 },
       );
     }
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
 
     if (configError || !config) {
       return NextResponse.json(
-        { error: 'WhatsApp not configured.' },
+        { error: 'WhatsApp não configurado.' },
         { status: 400 },
       );
     }

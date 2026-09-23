@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   const accountId = profile?.account_id as string | undefined
   if (!accountId) {
     return NextResponse.json(
-      { error: 'Your profile is not linked to an account.' },
+      { error: 'Seu perfil não está vinculado a uma conta.' },
       { status: 403 },
     )
   }
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     ]
     if (issues.length > 0) {
       return NextResponse.json(
-        { error: 'Cannot activate automation with invalid configuration', issues },
+        { error: 'Não é possível ativar a automação com configuração inválida', issues },
         { status: 400 },
       )
     }
