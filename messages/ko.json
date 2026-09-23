@@ -260,6 +260,8 @@
       "unsupported": "[지원되지 않는 메시지 형식]",
       "aiBadge": "AI",
       "aiBadgeTitle": "AI 어시스턴트가 자동으로 전송함",
+      "edited": "수정됨",
+      "editedTitle": "이 메시지는 수정되었습니다",
       "download": "다운로드",
       "downloadFailed": "첨부파일을 다운로드할 수 없습니다",
       "viewImage": "이미지 보기",

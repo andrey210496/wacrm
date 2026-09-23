@@ -274,6 +274,11 @@ export interface Message {
    * negócio). Dirige o badge "pelo app" no inbox. Migration 060.
    */
   via_business_app?: boolean;
+  /**
+   * Preenchido quando a mensagem foi EDITADA (ex.: o negócio editou pelo app
+   * WhatsApp Business). Dirige o rótulo "editada" na bolha. Migration 062.
+   */
+  edited_at?: string | null;
 }
 
 export type ReactionActor = 'customer' | 'agent';

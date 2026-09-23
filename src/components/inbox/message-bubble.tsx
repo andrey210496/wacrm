@@ -288,6 +288,19 @@ export function MessageBubble({
               pelo app
             </span>
           )}
+          {/* "editada" — a mensagem foi editada (ex.: o negócio editou pelo
+              app WhatsApp Business). Migration 062. */}
+          {message.edited_at && (
+            <span
+              className={cn(
+                "text-[10px] italic",
+                isAgent ? "text-primary-foreground/70" : "text-muted-foreground",
+              )}
+              title={t("editedTitle")}
+            >
+              {t("edited")}
+            </span>
+          )}
           <span
             className={cn(
               "text-[10px]",

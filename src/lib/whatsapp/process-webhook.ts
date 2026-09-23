@@ -1130,6 +1130,8 @@ async function insertCoexMessage(params: {
   /** URL da mídia espelhada (bucket durável) ou proxy; null = sem mídia. */
   mediaUrl?: string | null
   mediaType?: string | null
+  /** Carimbo de edição, quando a mensagem representa um conteúdo editado. */
+  editedAt?: string | null
 }): Promise<boolean> {
   const createdAt =
     params.timestamp && params.timestamp > 0
@@ -1148,6 +1150,7 @@ async function insertCoexMessage(params: {
         message_id: params.metaId,
         status: params.status,
         via_business_app: params.viaBusinessApp,
+        edited_at: params.editedAt ?? null,
         created_at: createdAt,
       },
       { onConflict: 'conversation_id,message_id', ignoreDuplicates: true },
@@ -1237,6 +1240,7 @@ async function applyCoexEdit(
   ed: NormalizedEdit,
 ): Promise<void> {
   const mf = await coexMediaFields(config, ed)
+  const editedAt = new Date().toISOString()
   const { data, error } = await supabaseAdmin()
     .from('messages')
     .update({
@@ -1244,6 +1248,7 @@ async function applyCoexEdit(
       content_text: mf.contentText,
       media_url: mf.mediaUrl,
       media_type: mf.mediaType,
+      edited_at: editedAt,
     })
     .eq('conversation_id', conversationId)
     .eq('message_id', ed.originalMessageId)
@@ -1253,7 +1258,8 @@ async function applyCoexEdit(
     return
   }
   if (data && data.length > 0) return // original atualizada com o conteúdo novo
-  // Original desconhecida → insere o conteúdo editado (não perde a mensagem).
+  // Original desconhecida → insere o conteúdo editado (não perde a mensagem),
+  // já marcado como editado.
   await insertCoexMessage({
     conversationId,
     senderType: 'agent',
@@ -1265,6 +1271,7 @@ async function applyCoexEdit(
     contentType: mf.contentType,
     mediaUrl: mf.mediaUrl,
     mediaType: mf.mediaType,
+    editedAt,
   })
 }
 

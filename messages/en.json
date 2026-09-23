@@ -260,6 +260,8 @@
       "unsupported": "[Unsupported message type]",
       "aiBadge": "AI",
       "aiBadgeTitle": "Sent automatically by the AI assistant",
+      "edited": "edited",
+      "editedTitle": "This message was edited",
       "download": "Download",
       "downloadFailed": "Couldn't download the attachment",
       "viewImage": "View image",
