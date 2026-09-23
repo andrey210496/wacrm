@@ -31,6 +31,8 @@ type CoexMsg = {
   document?: CoexMediaObj;
   audio?: CoexMediaObj;
   sticker?: CoexMediaObj;
+  /** Presente quando type === 'edit': aponta a mensagem original + conteúdo novo. */
+  edit?: { original_message_id?: string; message?: CoexMsg };
   history_context?: { status?: string };
   [k: string]: unknown;
 };
@@ -130,6 +132,9 @@ export function parseMessageEchoes(value: unknown): NormalizedEcho[] {
   const out: NormalizedEcho[] = [];
   for (const m of v?.message_echoes ?? []) {
     if (!m.id || !m.to) continue;
+    // Edições são tratadas por parseMessageEdits (atualizam a original), não
+    // viram bolha nova aqui.
+    if (m.type === "edit") continue;
     const media = extractCoexMedia(m);
     out.push({
       metaId: m.id,
@@ -137,6 +142,53 @@ export function parseMessageEchoes(value: unknown): NormalizedEcho[] {
       timestamp: m.timestamp ? Number(m.timestamp) : null,
       contentType: coexContentType(m.type),
       contentText: extractCoexContent(m),
+      mediaId: media?.id ?? null,
+      mediaMime: media?.mime ?? null,
+      mediaFilename: media?.filename ?? null,
+      mediaCaption: media?.caption ?? null,
+    });
+  }
+  return out;
+}
+
+/** Uma edição de mensagem enviada pelo negócio (echo type='edit'). */
+export type NormalizedEdit = {
+  /** id da mensagem-echo de edição (fallback quando a original não existe). */
+  editId: string;
+  /** id da mensagem ORIGINAL a ser atualizada. */
+  originalMessageId: string;
+  contactPhone: string;
+  timestamp: number | null;
+  /** Conteúdo NOVO (do edit.message). */
+  contentType: string;
+  contentText: string | null;
+  mediaId: string | null;
+  mediaMime: string | null;
+  mediaFilename: string | null;
+  mediaCaption: string | null;
+};
+
+/**
+ * smb_message_echoes com type='edit' → edições de mensagens que o negócio já
+ * havia enviado. O conteúdo novo vem em `edit.message` (mesmo formato de uma
+ * mensagem), então reusamos os extractores. O handler atualiza a original.
+ */
+export function parseMessageEdits(value: unknown): NormalizedEdit[] {
+  const v = value as { message_echoes?: CoexMsg[] } | null;
+  const out: NormalizedEdit[] = [];
+  for (const m of v?.message_echoes ?? []) {
+    if (m.type !== "edit") continue;
+    const originalId = m.edit?.original_message_id;
+    const inner = m.edit?.message;
+    if (!m.id || !m.to || !originalId || !inner) continue;
+    const media = extractCoexMedia(inner);
+    out.push({
+      editId: m.id,
+      originalMessageId: originalId,
+      contactPhone: m.to,
+      timestamp: m.timestamp ? Number(m.timestamp) : null,
+      contentType: coexContentType(inner.type),
+      contentText: extractCoexContent(inner),
       mediaId: media?.id ?? null,
       mediaMime: media?.mime ?? null,
       mediaFilename: media?.filename ?? null,

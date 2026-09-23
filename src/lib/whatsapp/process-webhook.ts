@@ -17,8 +17,10 @@ import {
 } from '@/lib/whatsapp/template-webhook'
 import {
   parseMessageEchoes,
+  parseMessageEdits,
   parseHistory,
   parseAppStateSync,
+  type NormalizedEdit,
 } from '@/lib/whatsapp/coex-webhooks'
 import { resolveCoexMediaUrl } from '@/lib/whatsapp/coex-media'
 
@@ -1220,6 +1222,52 @@ async function coexMediaFields(
   }
 }
 
+/**
+ * Aplica uma edição: atualiza a mensagem ORIGINAL (por message_id na conversa)
+ * com o conteúdo novo. Se a original não existe no nosso banco (não recebida),
+ * insere o conteúdo editado (keyed pelo id do echo de edição) pra não perder.
+ */
+async function applyCoexEdit(
+  config: {
+    account_id: string
+    access_token: string
+    mirror_inbound_media: boolean | null
+  },
+  conversationId: string,
+  ed: NormalizedEdit,
+): Promise<void> {
+  const mf = await coexMediaFields(config, ed)
+  const { data, error } = await supabaseAdmin()
+    .from('messages')
+    .update({
+      content_type: mf.contentType,
+      content_text: mf.contentText,
+      media_url: mf.mediaUrl,
+      media_type: mf.mediaType,
+    })
+    .eq('conversation_id', conversationId)
+    .eq('message_id', ed.originalMessageId)
+    .select('id')
+  if (error) {
+    console.error('[coex] update de edição falhou:', error.message)
+    return
+  }
+  if (data && data.length > 0) return // original atualizada com o conteúdo novo
+  // Original desconhecida → insere o conteúdo editado (não perde a mensagem).
+  await insertCoexMessage({
+    conversationId,
+    senderType: 'agent',
+    contentText: mf.contentText,
+    metaId: ed.editId,
+    status: 'sent',
+    viaBusinessApp: true,
+    timestamp: ed.timestamp,
+    contentType: mf.contentType,
+    mediaUrl: mf.mediaUrl,
+    mediaType: mf.mediaType,
+  })
+}
+
 async function handleMessageEchoes(value: unknown): Promise<void> {
   const v = value as { metadata?: { phone_number_id?: string } }
   const config = await resolveCoexConfig(v.metadata?.phone_number_id)
@@ -1250,6 +1298,21 @@ async function handleMessageEchoes(value: unknown): Promise<void> {
     })
     // Resumo da conversa: o marcador/legenda original (list preview).
     if (inserted) await touchConversationSummary(convResult.conversation.id, e.contentText, e.timestamp)
+  }
+
+  // Edições (type='edit'): atualizam a mensagem original em vez de virar bolha nova.
+  const edits = parseMessageEdits(value)
+  for (const ed of edits) {
+    const contactOutcome = await findOrCreateContact(config.account_id, config.unit_id, config.user_id, {
+      phone: ed.contactPhone,
+      bsuid: null,
+      username: null,
+      name: '',
+    })
+    if (!contactOutcome) continue
+    const convResult = await findOrCreateConversation(config.account_id, config.unit_id, config.user_id, contactOutcome.contact.id)
+    if (!convResult) continue
+    await applyCoexEdit(config, convResult.conversation.id, ed)
   }
 }
 

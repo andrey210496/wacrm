@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseMessageEchoes,
+  parseMessageEdits,
   parseHistory,
   parseAppStateSync,
   coexContentType,
@@ -8,6 +9,68 @@ import {
   extractCoexMedia,
   mapHistoryStatus,
 } from "./coex-webhooks";
+
+describe("parseMessageEdits", () => {
+  it("extrai edição de texto: original_message_id + conteúdo novo", () => {
+    const out = parseMessageEdits({
+      message_echoes: [
+        {
+          to: "16505551234",
+          id: "wamid.NEW",
+          timestamp: "1749854620",
+          type: "edit",
+          edit: {
+            original_message_id: "wamid.ORIG",
+            message: { type: "text", text: { body: "texto corrigido" } },
+          },
+        },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      editId: "wamid.NEW",
+      originalMessageId: "wamid.ORIG",
+      contactPhone: "16505551234",
+      contentType: "text",
+      contentText: "texto corrigido",
+      mediaId: null,
+    });
+  });
+
+  it("extrai edição de mídia com id/mime/caption novos", () => {
+    const out = parseMessageEdits({
+      message_echoes: [
+        {
+          to: "16505551234",
+          id: "wamid.NEW2",
+          type: "edit",
+          edit: {
+            original_message_id: "wamid.ORIG2",
+            message: { type: "image", image: { id: "MID", mime_type: "image/jpeg", caption: "nova legenda" } },
+          },
+        },
+      ],
+    });
+    expect(out[0]).toMatchObject({
+      originalMessageId: "wamid.ORIG2",
+      contentType: "image",
+      mediaId: "MID",
+      mediaMime: "image/jpeg",
+      mediaCaption: "nova legenda",
+    });
+  });
+
+  it("ignora edit sem original_message_id, sem message, sem id ou sem to", () => {
+    expect(parseMessageEdits({ message_echoes: [{ to: "x", id: "i", type: "edit", edit: { message: { type: "text" } } }] })).toEqual([]);
+    expect(parseMessageEdits({ message_echoes: [{ to: "x", id: "i", type: "edit", edit: { original_message_id: "o" } }] })).toEqual([]);
+    expect(parseMessageEdits({ message_echoes: [{ id: "i", type: "edit", edit: { original_message_id: "o", message: { type: "text" } } }] })).toEqual([]);
+    expect(parseMessageEdits({})).toEqual([]);
+  });
+
+  it("mensagens não-edit não viram edições", () => {
+    expect(parseMessageEdits({ message_echoes: [{ to: "x", id: "i", type: "text", text: { body: "oi" } }] })).toEqual([]);
+  });
+});
 
 describe("extractCoexMedia", () => {
   it("extrai id/mime/filename/caption de imagem, vídeo, documento e áudio", () => {
@@ -72,6 +135,16 @@ describe("parseMessageEchoes", () => {
   it("ignora echo sem id ou sem to", () => {
     expect(parseMessageEchoes({ message_echoes: [{ from: "x", type: "text" }] })).toEqual([]);
     expect(parseMessageEchoes({})).toEqual([]);
+  });
+  it("pula echoes type='edit' (tratados por parseMessageEdits, não viram bolha nova)", () => {
+    const out = parseMessageEchoes({
+      message_echoes: [
+        { to: "5511777", id: "wamid.E", type: "edit", edit: { original_message_id: "wamid.O", message: { type: "text", text: { body: "x" } } } },
+        { to: "5511888", id: "wamid.T", type: "text", text: { body: "normal" } },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].metaId).toBe("wamid.T");
   });
   it("echo de mídia carrega mediaId/mediaMime/mediaFilename/mediaCaption", () => {
     const out = parseMessageEchoes({
