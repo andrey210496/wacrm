@@ -10,6 +10,8 @@ import {
 } from "@/lib/inbox/conversations";
 import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
 import { useRealtime } from "@/hooks/use-realtime";
+import { conversationVisibleInScope } from "@/lib/inbox/unit-visibility";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
@@ -42,6 +44,12 @@ function InboxPageInner() {
    * automatically instead of showing the empty center panel.
    */
   const deepLinkConvId = searchParams.get("c");
+
+  // Unidade selecionada (visão admin). `null` = todas as unidades. Usado para
+  // filtrar os eventos de tempo real pela MESMA unidade da carga inicial —
+  // senão uma conversa/mensagem de outra unidade vaza para a lista até um
+  // refresh (que re-roda a query escopada do ConversationList).
+  const { selectedUnitId } = useUnitScope();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -151,6 +159,10 @@ function InboxPageInner() {
       }
       if (!data) return;
       const fetched = normalizeConversation(data);
+      // Não adiciona conversa de outra unidade (caminho de tempo real: uma
+      // mensagem de conversa desconhecida dispara este hydrate). Respeita a
+      // unidade selecionada, igual à carga inicial.
+      if (!conversationVisibleInScope(fetched.unit_id, selectedUnitId)) return;
       setConversations((prev) => {
         const existing = prev.find((c) => c.id === fetched.id);
         if (existing) {
@@ -170,7 +182,7 @@ function InboxPageInner() {
     } finally {
       hydratingConvIdsRef.current.delete(convId);
     }
-  }, []);
+  }, [selectedUnitId]);
 
   // Check WhatsApp connection status on mount
   useEffect(() => {
@@ -288,6 +300,12 @@ function InboxPageInner() {
     }) => {
       const conv = event.new;
 
+      // Ignora conversas de outra unidade (o Realtime entrega eventos de TODAS
+      // as unidades da conta ao admin). Respeita a unidade selecionada, igual à
+      // carga inicial — sem isso, uma conversa de outra unidade aparece na lista
+      // até um refresh.
+      if (!conversationVisibleInScope(conv.unit_id, selectedUnitId)) return;
+
       if (event.eventType === "INSERT") {
         // Prepend immediately for snappy UX so the new conv shows in the
         // list right away, then hydrate to fill in the `contact` join
@@ -338,7 +356,7 @@ function InboxPageInner() {
         }
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, hydrateConversation, selectedUnitId]
   );
 
   // Subscribe to realtime. The `isConnected` flag below feeds the
