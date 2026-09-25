@@ -3,10 +3,11 @@ import Link from "next/link";
 import { LifeBuoy, Plus } from "lucide-react";
 
 import { requireRole } from "@/lib/auth/account";
-import { supportListTickets } from "@/lib/support/central-support-client";
+import { supportListTickets, supportGetConfig } from "@/lib/support/central-support-client";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TicketRow } from "./ticket-row";
+import { SupportInfo } from "./support-info";
 
 export const metadata: Metadata = {
   title: "Suporte",
@@ -18,7 +19,10 @@ export const metadata: Metadata = {
 // sessão (o middleware já bloqueia o não-autenticado antes de chegar aqui).
 export default async function SupportPage() {
   await requireRole("viewer");
-  const tickets = await supportListTickets();
+  const [tickets, config] = await Promise.all([
+    supportListTickets(),
+    supportGetConfig(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -41,6 +45,8 @@ export default async function SupportPage() {
           Novo chamado
         </Link>
       </div>
+
+      <SupportInfo config={config} />
 
       {tickets.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card px-4 text-center">

@@ -3,7 +3,9 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { requireRole } from "@/lib/auth/account";
+import { supportGetConfig } from "@/lib/support/central-support-client";
 import { NewTicketForm } from "./new-ticket-form";
+import { SupportInfo } from "../support-info";
 
 export const metadata: Metadata = {
   title: "Novo chamado · Suporte",
@@ -11,6 +13,7 @@ export const metadata: Metadata = {
 
 export default async function NewSupportTicketPage() {
   await requireRole("viewer");
+  const config = await supportGetConfig();
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -29,6 +32,8 @@ export default async function NewSupportTicketPage() {
           Conte o que está acontecendo e nossa equipe responde por aqui.
         </p>
       </div>
+
+      <SupportInfo config={config} />
 
       <NewTicketForm />
     </div>

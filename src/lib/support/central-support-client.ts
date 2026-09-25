@@ -90,3 +90,34 @@ export async function supportDownloadAttachment(id: string): Promise<Response> {
     method: "GET", cache: "no-store", headers: { "x-license-secret": secret() },
   });
 }
+
+export interface SupportConfigDto {
+  slaClientText: string | null;
+  timezone: string;
+  businessHours: { weekday: number; open: string; close: string; closed: boolean }[];
+}
+
+/** Config pública do suporte (horário + texto de SLA) para exibir ao cliente.
+ *  Best-effort: qualquer falha → null (o bloco informativo é decorativo e não
+ *  pode derrubar a página de suporte). */
+export async function supportGetConfig(): Promise<SupportConfigDto | null> {
+  const { signal, done } = withTimeout();
+  try {
+    const res = await fetch(`${centralBase()}/api/support/relay/config`, {
+      method: "GET", cache: "no-store", signal, headers: { "x-license-secret": secret() },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return {
+      slaClientText: (body.slaClientText as string | null) ?? null,
+      timezone: (body.timezone as string) ?? "America/Sao_Paulo",
+      businessHours: Array.isArray(body.businessHours)
+        ? (body.businessHours as SupportConfigDto["businessHours"])
+        : [],
+    };
+  } catch {
+    return null;
+  } finally {
+    done();
+  }
+}
