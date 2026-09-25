@@ -17,6 +17,7 @@ import {
   GitBranch,
   HelpCircle,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   MessageSquare,
   Radio,
@@ -126,6 +127,7 @@ const navSections: NavSection[] = [
 
 const bottomNavItems: NavItem[] = [
   { href: "/ajuda", labelKey: "ajuda", icon: HelpCircle },
+  { href: "/support", labelKey: "support", icon: LifeBuoy },
   { href: "/settings", labelKey: "settings", icon: Settings },
 ];
 
