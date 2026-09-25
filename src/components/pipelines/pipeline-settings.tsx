@@ -408,12 +408,15 @@ function SortableStageRow({
       <Input
         value={stage.name}
         onChange={(e) => onNameChange(e.target.value)}
+        aria-label="Nome da etapa"
         className="h-7 flex-1 border-transparent bg-transparent text-sm text-foreground focus:border-border"
       />
       <Button
         variant="ghost"
         size="icon-xs"
         onClick={onRemove}
+        aria-label={stage.name ? `Remover etapa ${stage.name}` : "Remover etapa"}
+        title="Remover etapa"
         className="text-muted-foreground hover:text-red-400"
       >
         <Trash2 className="h-3 w-3" />

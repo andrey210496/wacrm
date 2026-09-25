@@ -57,6 +57,7 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { useUnitScope } from '@/components/units/unit-scope-provider';
 
 const PAGE_SIZE = 25;
 
@@ -69,6 +70,8 @@ export default function ContactsPage() {
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  // Management-side unit filter (`null` = all units, admin+ only).
+  const { selectedUnitId } = useUnitScope();
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,6 +163,12 @@ export default function ContactsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
+      // Narrow to the selected unit when the admin has picked one.
+      // (The tag-filtered branch above goes through the
+      // `filter_contacts_by_tags` RPC, which has no unit parameter yet,
+      // so unit narrowing there would need a migration — out of scope.)
+      if (selectedUnitId) query = query.eq('unit_id', selectedUnitId);
+
       if (term) {
         const like = `%${term}%`;
         query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
@@ -207,7 +216,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, tagsMap, t, selectedUnitId]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -344,7 +353,7 @@ export default function ContactsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+          <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">{t('title')}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {totalCount > 0 ? t('subtitle', { count: totalCount }) : t('subtitleZero')}
           </p>
@@ -395,6 +404,7 @@ export default function ContactsPage() {
                 // set shrinks/grows, page N may no longer be valid.
                 setPage(0);
               }}
+              aria-label={t('searchPlaceholder')}
               placeholder={t('searchPlaceholder')}
               className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
@@ -653,6 +663,8 @@ export default function ContactsPage() {
                             size="icon-sm"
                             className="text-muted-foreground hover:text-foreground"
                             onClick={(e) => e.stopPropagation()}
+                            aria-label={`Ações de ${contact.name || 'contato'}`}
+                            title="Ações"
                           />
                         }
                       >
@@ -709,6 +721,8 @@ export default function ContactsPage() {
               size="icon-sm"
               disabled={!hasPrev}
               onClick={() => setPage((p) => p - 1)}
+              aria-label="Página anterior"
+              title="Página anterior"
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             >
               <ChevronLeft className="size-4" />
@@ -721,6 +735,8 @@ export default function ContactsPage() {
               size="icon-sm"
               disabled={!hasNext}
               onClick={() => setPage((p) => p + 1)}
+              aria-label="Próxima página"
+              title="Próxima página"
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
             >
               <ChevronRight className="size-4" />

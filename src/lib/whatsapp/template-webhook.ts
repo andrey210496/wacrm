@@ -19,12 +19,19 @@
  * done, status updates only land via the manual "Sync from Meta"
  * button (the legacy fallback, intentionally preserved).
  *
- * ─── Multi-tenant note ────────────────────────────────────────────
- * `meta_template_id` is globally unique per WABA — the lookup doesn't
- * filter by user_id. If two wacrm tenants somehow ended up with the
- * same id (impossible in practice, but a theoretical race during
- * cross-tenant moves), the handler updates both rows and logs a
- * warning so operators can investigate.
+ * ─── Multi-tenant / multi-unit note ───────────────────────────────
+ * Every handler matches on `meta_template_id`, which Meta mints per
+ * template per WABA and we store verbatim on each row. That makes the
+ * match inherently UNIT-safe even after migration 048 relaxed local
+ * uniqueness to (account_id, unit_id, name, language): a name that now
+ * repeats across two units still carries two DISTINCT meta_template_ids
+ * (one per WABA), so a status/quality event updates exactly the row for
+ * the unit whose WABA it came from — no name/language matching, no unit
+ * disambiguation needed. (Locally-created DRAFT rows have a null
+ * meta_template_id and simply never match a real id.) If two rows ever
+ * shared an id — impossible in practice, but a theoretical race during a
+ * cross-tenant move — the handler updates both and logs a warning so
+ * operators can investigate.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'

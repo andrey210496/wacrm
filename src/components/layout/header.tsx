@@ -17,6 +17,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
+import { UnitSelector } from "@/components/units/unit-selector";
+import { useUnitScope } from "@/components/units/unit-scope-provider";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -27,6 +29,7 @@ const pageTitles: Record<string, string> = {
   "/broadcasts": "broadcasts",
   "/automations": "automations",
   "/settings": "settings",
+  "/ajuda": "ajuda",
 };
 
 function getPageTitleKey(pathname: string): string {
@@ -49,6 +52,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
   const t = useTranslations("Header");
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
+  const { visibleUnits, selectedUnitId, canSeeAll } = useUnitScope();
   const titleKey = getPageTitleKey(pathname);
 
   const initial =
@@ -68,12 +72,19 @@ export function Header({ onOpenSidebar }: HeaderProps) {
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">
+        <h1 className="truncate font-heading text-base font-semibold tracking-tight text-foreground sm:text-lg">
           {t(titleKey as string)}
         </h1>
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        {/* Management-side unit filter (admin+: a switch; agent/viewer:
+            a static label; hidden entirely for single-unit accounts). */}
+        <UnitSelector
+          units={visibleUnits}
+          selectedUnitId={selectedUnitId}
+          canSeeAll={canSeeAll}
+        />
         <ModeToggle />
 
         <DropdownMenu>

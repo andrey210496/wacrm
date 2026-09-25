@@ -48,11 +48,41 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabase
+    // The media was received by a specific unit's WhatsApp number, so we
+    // fetch it with THAT unit's token. Resolve the unit from the message
+    // that references this media (media_url is the proxy path we stored on
+    // receipt — see the webhook's verifyAndBuildUrl) → its conversation →
+    // its unit_id (migration 043). RLS on the user client already scopes
+    // this to the caller's account.
+    const proxyPath = `/api/whatsapp/media/${mediaId}`
+    const { data: mediaMessage } = await supabase
+      .from('messages')
+      .select('id, conversation:conversations!inner(unit_id)')
+      .eq('media_url', proxyPath)
+      .limit(1)
+      .maybeSingle()
+    const conv = Array.isArray(mediaMessage?.conversation)
+      ? mediaMessage?.conversation[0]
+      : mediaMessage?.conversation
+    const unitId = (conv as { unit_id?: string } | undefined)?.unit_id
+
+    // Fetch and decrypt WhatsApp config for that unit (migration 042,
+    // UNIQUE(unit_id)). FALLBACK: if the media can't be traced to a unit
+    // (message not visible / pre-migration row), fall back to the account's
+    // oldest config — any token on the same WABA can still fetch the media.
+    let configQuery = supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+    if (unitId) {
+      configQuery = configQuery.eq('unit_id', unitId)
+    } else {
+      console.warn(
+        `[whatsapp/media] no unit resolved for media ${mediaId}; falling back to the account's oldest config`,
+      )
+    }
+    const { data: config, error: configError } = await configQuery
+      .limit(1)
       .single()
 
     if (configError || !config) {

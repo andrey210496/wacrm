@@ -69,6 +69,22 @@ const nextConfig: NextConfig = {
   // Harmless outside Docker: `next start` keeps working as before.
   output: "standalone",
 
+  // Fixa a raiz do tracing na pasta do app. Sem isso, o Next infere a raiz
+  // ACIMA do wacrm (o Desktop tem outros projetos/lockfiles) e aninha o
+  // standalone em `.next/standalone/wacrm/server.js` — o que quebra o
+  // `CMD ["node", "server.js"]` do Dockerfile. Com isso, fica flat.
+  outputFileTracingRoot: process.cwd(),
+
+  // Pula a checagem de tipos DENTRO do `next build`. Não é atalho de qualidade:
+  // `tsc --noEmit`, `eslint` e `vitest` são gates SEPARADOS (rodados em dev/CI
+  // antes de cada push). O type-check embutido no build é o passo mais pesado de
+  // memória do `next build` e, em VPS com RAM apertada (o caso do deploy SILO no
+  // EasyPanel), ele estoura/é morto pelo OOM e o build CONGELA em "Running
+  // TypeScript ..." sem cuspir erro. Removendo-o daqui, o build de produção fica
+  // leve e determinístico; a validação de tipos continua acontecendo fora do
+  // container. (Este Next 16 não roda ESLint no build, então não há chave de lint.)
+  typescript: { ignoreBuildErrors: true },
+
   /**
    * Cross-origin dev access (Next.js 16).
    *

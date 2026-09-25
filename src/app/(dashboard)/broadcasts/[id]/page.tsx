@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
@@ -196,6 +196,26 @@ export default function BroadcastDetailPage() {
     fetchData();
   }, [fetchData]);
 
+  // Live progress while sending: poll every ~4s, stop as soon as the status
+  // settles (or on unmount). A ref tracks the latest status so the interval
+  // callback always sees the current value instead of the one captured when
+  // the effect first ran.
+  const broadcastStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    broadcastStatusRef.current = broadcast?.status ?? null;
+  }, [broadcast?.status]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (broadcastStatusRef.current !== 'sending') {
+        clearInterval(interval);
+        return;
+      }
+      fetchData();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
   const filteredRecipients = useMemo(
     () =>
       statusFilter === 'all'
@@ -342,13 +362,15 @@ export default function BroadcastDetailPage() {
             variant="outline"
             size="icon"
             onClick={() => router.push('/broadcasts')}
+            aria-label="Voltar para transmissões"
+            title="Voltar"
             className="border-border"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-foreground">{broadcast.name}</h1>
+              <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">{broadcast.name}</h1>
               <span
                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${status.classes}`}
               >

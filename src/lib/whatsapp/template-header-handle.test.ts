@@ -79,7 +79,7 @@ describe('ensureImageHeaderHandle', () => {
   it('rejects a non-image content type', async () => {
     vi.stubEnv('META_APP_ID', 'app-1');
     vi.stubGlobal('fetch', vi.fn(async () => imgResponse('text/html')));
-    await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/JPEG or PNG/);
+    await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/JPEG ou PNG/);
   });
 
   it('rejects an image over 5 MB', async () => {
@@ -100,7 +100,7 @@ describe('ensureImageHeaderHandle', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     const p = payload({ header_media_url: 'http://169.254.169.254/latest/meta-data/' });
-    await expect(ensureImageHeaderHandle(p, 'tok')).rejects.toThrow(/publicly reachable/);
+    await expect(ensureImageHeaderHandle(p, 'tok')).rejects.toThrow(/acessível publicamente/);
 
     expect(isDeliverableUrl).toHaveBeenCalledWith('http://169.254.169.254/latest/meta-data/');
     expect(fetchSpy).not.toHaveBeenCalled();

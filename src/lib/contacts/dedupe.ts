@@ -21,21 +21,29 @@ export function normalizeKey(phone: string): string {
 /** Minimal shape we need back from a contacts lookup. */
 export interface ExistingContact {
   id: string;
-  phone: string;
+  // Nullable desde a migration 050: um contato só-BSUID (usuário escondeu o
+  // número via username) não tem telefone.
+  phone: string | null;
   name?: string | null;
+  bsuid?: string | null;
   [key: string]: unknown;
 }
 
 /**
- * Find an existing contact in `accountId` whose phone matches `phone`,
- * or null. Pre-filters in SQL by the last-8-digit suffix (so we don't
- * pull every contact), then applies the strict `phonesMatch` in JS on
- * the small candidate set — the exact approach the webhook has used.
+ * Find an existing contact in `accountId` + `unitId` whose phone matches
+ * `phone`, or null. The same phone can be a lead in two different
+ * unidades (each keeps its own carteira — migration 044), so the
+ * candidate query is scoped by `unit_id` in addition to `account_id`: a
+ * contact with the same phone in a different unit is never matched.
+ * Pre-filters in SQL by the last-8-digit suffix (so we don't pull every
+ * contact), then applies the strict `phonesMatch` in JS on the small
+ * candidate set — the exact approach the webhook has used.
  */
 export async function findExistingContact(
   db: SupabaseClient,
   accountId: string,
   phone: string,
+  unitId: string,
 ): Promise<ExistingContact | null> {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
@@ -46,13 +54,41 @@ export async function findExistingContact(
     .from("contacts")
     .select("*")
     .eq("account_id", accountId)
+    .eq("unit_id", unitId)
     .like("phone", `%${suffix}`);
 
   if (error || !data) return null;
 
   return (
-    (data as ExistingContact[]).find((c) => phonesMatch(c.phone, phone)) ?? null
+    (data as ExistingContact[]).find(
+      (c) => c.phone != null && phonesMatch(c.phone, phone),
+    ) ?? null
   );
+}
+
+/**
+ * Find an existing contact in `accountId` + `unitId` by its Business-Scoped
+ * User ID (BSUID), or null. Usado quando o inbound vem sem telefone (usuário
+ * com username que escondeu o número): a identidade estável é o `user_id` da
+ * Meta. Escopo por unidade, como o telefone (cada unidade tem sua carteira).
+ */
+export async function findContactByBsuid(
+  db: SupabaseClient,
+  accountId: string,
+  bsuid: string,
+  unitId: string,
+): Promise<ExistingContact | null> {
+  if (!bsuid) return null;
+  const { data, error } = await db
+    .from("contacts")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("unit_id", unitId)
+    .eq("bsuid", bsuid)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as ExistingContact;
 }
 
 /**
@@ -61,7 +97,7 @@ export async function findExistingContact(
  * exact matches but only warns on fuzzy ones.
  */
 export function isExactMatch(existing: ExistingContact, phone: string): boolean {
-  return normalizeKey(existing.phone) === normalizeKey(phone);
+  return normalizeKey(existing.phone ?? '') === normalizeKey(phone);
 }
 
 /**

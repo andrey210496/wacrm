@@ -13,6 +13,7 @@ import {
   Zap,
   AlertTriangle,
   RotateCcw,
+  Building2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -22,8 +23,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { DeadLetterAlert } from '@/components/settings/deadletter-alert';
+import { BillingPanel } from '@/components/settings/billing-panel';
+import { UazapiChannelPanel } from '@/components/settings/uazapi-channel-panel';
+import { ConexaoRedezapPanel } from '@/components/settings/conexao-redezap-panel';
+import { PerfilWhatsappPanel } from '@/components/settings/perfil-whatsapp-panel';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
+import { CoexConnectButton } from './coex-connect-button';
+import { MmLiteStatusBadge } from '@/components/settings/mm-lite-status-badge';
 import {
   Accordion,
   AccordionItem,
@@ -36,6 +51,16 @@ const MASKED_TOKEN = '••••••••••••••••';
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'unknown';
 type ResetReason = 'token_corrupted' | 'meta_api_error' | null;
+
+// Minimal unit shape for the connect form's unit picker + status list.
+// Defined locally (rather than importing `Unit` from `@/lib/units/context`,
+// which pulls a server-leaning module) to keep this client component clean.
+interface UnitLite {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+}
 
 export function WhatsAppConfig() {
   const t = useTranslations('Settings.whatsapp');
@@ -59,6 +84,16 @@ export function WhatsAppConfig() {
   const [resetting, setResetting] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
+
+  // Multi-unit: an account has N units, each with its own WhatsApp number
+  // (migration 042). `units` is the account's full list; `configByUnit`
+  // maps unit_id → its saved config row (for the per-unit status list);
+  // `activeUnitId` is the unit the form below is currently editing.
+  const [units, setUnits] = useState<UnitLite[]>([]);
+  const [configByUnit, setConfigByUnit] = useState<
+    Record<string, WhatsAppConfigType>
+  >({});
+  const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
   const [resetReason, setResetReason] = useState<ResetReason>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
@@ -111,80 +146,144 @@ export function WhatsAppConfig() {
       ? `${window.location.origin}/api/whatsapp/webhook`
       : '';
 
-  const fetchConfig = useCallback(async (acctId: string) => {
-    setLoading(true);
-    try {
-      // Load form values from Supabase (shows what's in DB).
-      // Switched from `user_id` (which would only match the row's
-      // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
-      const { data, error } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', acctId)
-        .maybeSingle();
+  // Bind the editable form fields to one unit's saved config (or clear
+  // them for a unit with no number connected yet).
+  const populateForm = useCallback((cfg: WhatsAppConfigType | null) => {
+    if (cfg) {
+      setConfig(cfg);
+      setPhoneNumberId(cfg.phone_number_id || '');
+      setWabaId(cfg.waba_id || '');
+      setAccessToken(MASKED_TOKEN);
+      setVerifyToken('');
+      setPin('');
+      setTokenEdited(false);
+      // Undefined on a row read before migration 039 — treat that as on,
+      // matching the webhook's own default.
+      setMirrorMedia(cfg.mirror_inbound_media !== false);
+    } else {
+      setConfig(null);
+      setPhoneNumberId('');
+      setWabaId('');
+      setAccessToken('');
+      setVerifyToken('');
+      setPin('');
+      setTokenEdited(false);
+      setMirrorMedia(true);
+    }
+    // Clear any stale probe/health result when switching rows.
+    setRegistrationProbe(null);
+  }, []);
 
-      if (error) {
-        console.error('Failed to load config row:', error);
-      }
-
-      if (data) {
-        setConfig(data);
-        setPhoneNumberId(data.phone_number_id || '');
-        setWabaId(data.waba_id || '');
-        setAccessToken(MASKED_TOKEN);
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
-        // Undefined on a row read before migration 039 — treat that as
-        // on, matching the webhook's own default.
-        setMirrorMedia(data.mirror_inbound_media !== false);
-      } else {
-        setConfig(null);
-        setPhoneNumberId('');
-        setWabaId('');
-        setAccessToken('');
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
-        setMirrorMedia(true);
-      }
-      // Clear any stale probe result when reloading the row.
-      setRegistrationProbe(null);
-
-      // Then verify health via the API (decrypts token + pings Meta)
-      if (data) {
-        try {
-          const res = await fetch('/api/whatsapp/config', { method: 'GET' });
-          const payload = await res.json();
-
-          if (payload.connected) {
-            setConnectionStatus('connected');
-            setResetReason(null);
-            setStatusMessage('');
-          } else {
-            setConnectionStatus('disconnected');
-            setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
-            setStatusMessage(payload.message || '');
-          }
-        } catch (err) {
-          console.error('Health check failed:', err);
-          setConnectionStatus('disconnected');
-        }
-      } else {
+  // Verify one unit's saved credentials via the API (decrypts token +
+  // pings Meta). No-ops (shows disconnected) when the unit has no row.
+  const runHealthCheck = useCallback(
+    async (unitId: string | null, hasConfig: boolean) => {
+      if (!unitId || !hasConfig) {
         setConnectionStatus('disconnected');
         setResetReason(null);
         setStatusMessage('');
+        return;
       }
-    } catch (err) {
-      console.error('fetchConfig error:', err);
-      toast.error('Failed to load WhatsApp configuration');
-    } finally {
-      setLoading(false);
-    }
-  }, [supabase]);
+      try {
+        const res = await fetch(
+          `/api/whatsapp/config?unitId=${encodeURIComponent(unitId)}`,
+          { method: 'GET' },
+        );
+        const payload = await res.json();
+        if (payload.connected) {
+          setConnectionStatus('connected');
+          setResetReason(null);
+          setStatusMessage('');
+        } else {
+          setConnectionStatus('disconnected');
+          setResetReason(
+            payload.needs_reset
+              ? 'token_corrupted'
+              : payload.reason === 'meta_api_error'
+                ? 'meta_api_error'
+                : null,
+          );
+          setStatusMessage(payload.message || '');
+        }
+      } catch (err) {
+        console.error('Health check failed:', err);
+        setConnectionStatus('disconnected');
+      }
+    },
+    [],
+  );
+
+  // Load the account's units (from the CRUD API) plus every saved config
+  // row, key the rows by unit_id, then bind the form to `preferUnitId`
+  // (falling back to the first unit). Called on mount and after each
+  // save/reset so the per-unit status list and the form stay in sync.
+  const fetchConfig = useCallback(
+    async (acctId: string, preferUnitId?: string | null) => {
+      setLoading(true);
+      try {
+        // Units — reuse the same list the unidades manager uses.
+        let unitList: UnitLite[] = [];
+        try {
+          const res = await fetch('/api/unidades', { cache: 'no-store' });
+          if (res.ok) {
+            const data = (await res.json()) as { units?: UnitLite[] };
+            unitList = data.units ?? [];
+          } else {
+            console.error('Failed to load units:', res.status);
+          }
+        } catch (err) {
+          console.error('Failed to load units:', err);
+        }
+        setUnits(unitList);
+
+        // Every config row for the account (RLS lets admins read all of
+        // them). Keyed by unit_id for the per-unit status list + form.
+        const { data: rows, error } = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('account_id', acctId);
+        if (error) {
+          console.error('Failed to load config rows:', error);
+        }
+        const map: Record<string, WhatsAppConfigType> = {};
+        for (const r of (rows ?? []) as WhatsAppConfigType[]) {
+          if (r.unit_id) map[r.unit_id] = r;
+        }
+        setConfigByUnit(map);
+
+        // Which unit does the form edit? Prefer the caller's request,
+        // else the current selection if still valid, else the first unit.
+        const nextActive =
+          (preferUnitId && unitList.some((u) => u.id === preferUnitId)
+            ? preferUnitId
+            : null) ?? unitList[0]?.id ?? null;
+        setActiveUnitId(nextActive);
+
+        const activeCfg = nextActive ? (map[nextActive] ?? null) : null;
+        populateForm(activeCfg);
+        await runHealthCheck(nextActive, Boolean(activeCfg));
+      } catch (err) {
+        console.error('fetchConfig error:', err);
+        toast.error('Falha ao carregar a configuração do WhatsApp');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [supabase, populateForm, runHealthCheck],
+  );
+
+  // Switch the form to a different unit without a full reload — the rows
+  // are already in `configByUnit`; just rebind + re-check health.
+  const handleSelectUnit = useCallback(
+    (unitId: string) => {
+      if (unitId === activeUnitId) return;
+      setActiveUnitId(unitId);
+      const cfg = configByUnit[unitId] ?? null;
+      populateForm(cfg);
+      void runHealthCheck(unitId, Boolean(cfg));
+    },
+    [activeUnitId, configByUnit, populateForm, runHealthCheck],
+  );
 
   useEffect(() => {
     // Need both the auth session (`!authLoading`) AND the profile
@@ -204,17 +303,20 @@ export function WhatsAppConfig() {
   }, [authLoading, profileLoading, user?.id, accountId, fetchConfig]);
 
   async function handleToggleMirrorMedia(next: boolean) {
-    if (!config || !accountId || savingMirror) return;
+    if (!config || !accountId || !activeUnitId || savingMirror) return;
     // Optimistic — the switch should feel instant; a failure rolls it
     // back rather than leaving the UI ahead of the row.
     const previous = mirrorMedia;
     setMirrorMedia(next);
     setSavingMirror(true);
     try {
+      // Scope to the active unit's row — an account now has one row per
+      // unit, so an account-only filter would flip the flag on every unit.
       const { error } = await supabase
         .from('whatsapp_config')
         .update({ mirror_inbound_media: next })
-        .eq('account_id', accountId);
+        .eq('account_id', accountId)
+        .eq('unit_id', activeUnitId);
       if (error) throw new Error(error.message);
       setConfig({ ...config, mirror_inbound_media: next });
     } catch (error) {
@@ -227,12 +329,16 @@ export function WhatsAppConfig() {
   }
 
   async function handleSave() {
+    if (!activeUnitId) {
+      toast.error('Selecione uma unidade para conectar o número.');
+      return;
+    }
     if (!phoneNumberId.trim()) {
-      toast.error('Phone Number ID is required');
+      toast.error('O Phone Number ID é obrigatório');
       return;
     }
     if (!config && (!accessToken.trim() || !tokenEdited)) {
-      toast.error('Access Token is required for initial setup');
+      toast.error('O Access Token é obrigatório na configuração inicial');
       return;
     }
 
@@ -244,6 +350,9 @@ export function WhatsAppConfig() {
       // and writing direct to Supabase stores the token in plaintext,
       // which then fails decryption on every subsequent health check.
       const payload: Record<string, unknown> = {
+        // The unit this number is being connected to — the route routes
+        // insert-vs-update and scopes the write by this.
+        unitId: activeUnitId,
         phone_number_id: phoneNumberId.trim(),
         waba_id: wabaId.trim() || null,
         verify_token: verifyToken.trim() || null,
@@ -260,7 +369,7 @@ export function WhatsAppConfig() {
         // server. But our POST handler requires an access_token to verify
         // with Meta. If the user didn't change the token, we need to signal
         // that. Simplest: require token re-entry if they're updating.
-        toast.error('Please re-enter the Access Token to save changes');
+        toast.error('Reinsira o Access Token para salvar as alterações');
         setSaving(false);
         return;
       }
@@ -312,19 +421,23 @@ export function WhatsAppConfig() {
         setPin('');
       }
 
-      if (accountId) await fetchConfig(accountId);
+      if (accountId) await fetchConfig(accountId, activeUnitId);
     } catch (err) {
       console.error('Save error:', err);
-      toast.error('Failed to save configuration');
+      toast.error('Falha ao salvar a configuração');
     } finally {
       setSaving(false);
     }
   }
 
   async function handleTestConnection() {
+    if (!activeUnitId) return;
     try {
       setTesting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+      const res = await fetch(
+        `/api/whatsapp/config?unitId=${encodeURIComponent(activeUnitId)}`,
+        { method: 'GET' },
+      );
       const payload = await res.json();
 
       if (payload.connected) {
@@ -345,7 +458,7 @@ export function WhatsAppConfig() {
     } catch (err) {
       console.error('Test connection error:', err);
       setConnectionStatus('disconnected');
-      toast.error('Connection test failed. Check network and try again.');
+      toast.error('Falha no teste de conexão. Verifique a rede e tente de novo.');
     } finally {
       setTesting(false);
     }
@@ -361,30 +474,34 @@ export function WhatsAppConfig() {
       const data = (await res.json()) as RegistrationProbe;
       setRegistrationProbe(data);
       if (data.live) {
-        toast.success('Number is fully wired — Meta is delivering events.');
+        toast.success('Número totalmente conectado — a Meta está entregando eventos.');
       } else {
         toast.error(
           'Number is not fully registered. See the checks below for which step failed.',
           { duration: 8000 },
         );
       }
-      if (accountId) await fetchConfig(accountId);
+      if (accountId) await fetchConfig(accountId, activeUnitId);
     } catch (err) {
       console.error('verify-registration failed:', err);
-      toast.error('Could not reach the verification endpoint.');
+      toast.error('Não foi possível acessar o endpoint de verificação.');
     } finally {
       setVerifyingRegistration(false);
     }
   }
 
   async function handleReset() {
+    if (!activeUnitId) return;
     if (!confirm('This will delete the current WhatsApp config so you can re-enter it. Continue?')) {
       return;
     }
 
     try {
       setResetting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'DELETE' });
+      const res = await fetch(
+        `/api/whatsapp/config?unitId=${encodeURIComponent(activeUnitId)}`,
+        { method: 'DELETE' },
+      );
       const data = await res.json();
 
       if (!res.ok) {
@@ -392,19 +509,13 @@ export function WhatsAppConfig() {
         return;
       }
 
-      toast.success('Configuration cleared. You can now re-enter your credentials.');
-      setConfig(null);
-      setPhoneNumberId('');
-      setWabaId('');
-      setAccessToken('');
-      setVerifyToken('');
-      setTokenEdited(false);
-      setConnectionStatus('disconnected');
-      setResetReason(null);
-      setStatusMessage('');
+      toast.success('Configuração limpa. Agora você pode reinserir suas credenciais.');
+      // Refetch so the per-unit status list drops this unit's number too;
+      // keeps the same unit selected so the admin can re-enter right away.
+      if (accountId) await fetchConfig(accountId, activeUnitId);
     } catch (err) {
       console.error('Reset error:', err);
-      toast.error('Failed to reset configuration');
+      toast.error('Falha ao redefinir a configuração');
     } finally {
       setResetting(false);
     }
@@ -412,7 +523,7 @@ export function WhatsAppConfig() {
 
   function handleCopyWebhookUrl() {
     navigator.clipboard.writeText(webhookUrl);
-    toast.success('Webhook URL copied to clipboard');
+    toast.success('URL do webhook copiada');
   }
 
   if (loading) {
@@ -431,15 +542,146 @@ export function WhatsAppConfig() {
 
   const showResetBanner = resetReason === 'token_corrupted';
 
+  // Per-unit status for the list below: green = number connected + Meta
+  // registered, amber = saved but not registered (won't receive events),
+  // muted = no number connected yet.
+  function unitStatus(unitId: string): {
+    number: string | null;
+    tone: 'connected' | 'pending' | 'none';
+  } {
+    const cfg = configByUnit[unitId];
+    if (!cfg) return { number: null, tone: 'none' };
+    return {
+      number: cfg.phone_number_id || null,
+      tone: cfg.registered_at ? 'connected' : 'pending',
+    };
+  }
+
   return (
     <section className="animate-in fade-in-50 duration-200">
       <SettingsPanelHead
         title={t("title")}
         description={t("description")}
       />
+      <div className="mt-2">
+        <MmLiteStatusBadge unitId={activeUnitId} />
+      </div>
+      {/* Alerta de mensagens inbound não processadas (dead-letter). Silencioso
+          quando não há nada pendente. */}
+      <div className="mb-6">
+        <DeadLetterAlert />
+      </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
       {/* Main config form */}
       <div className="space-y-6">
+        {/* Per-unit number picker + status. An account has one WhatsApp
+            number per unit (migration 042); pick which unit the form
+            below connects/edits, and see every unit's status at a glance. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-foreground">
+              <Building2 className="size-4 text-muted-foreground" />
+              Unidades e números
+            </CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Cada unidade conecta o seu próprio número. Escolha a unidade
+              que o formulário abaixo vai conectar ou editar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {units.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma unidade encontrada. Crie uma unidade em
+                Configurações → Unidades antes de conectar um número.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">
+                    Unidade em edição
+                  </Label>
+                  <Select
+                    value={activeUnitId ?? undefined}
+                    onValueChange={(v) => v && handleSelectUnit(v)}
+                  >
+                    <SelectTrigger className="bg-muted border-border text-foreground">
+                      <SelectValue placeholder="Selecione uma unidade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {units.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name}
+                          {!u.active ? ' (inativa)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <ul className="divide-y divide-border rounded-md border border-border">
+                  {units.map((u) => {
+                    const st = unitStatus(u.id);
+                    const isActive = u.id === activeUnitId;
+                    return (
+                      <li key={u.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectUnit(u.id)}
+                          aria-current={isActive ? 'true' : undefined}
+                          className={
+                            'flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors ' +
+                            (isActive
+                              ? 'bg-primary-soft'
+                              : 'hover:bg-muted')
+                          }
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {u.name}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {st.number
+                                ? st.number
+                                : 'Nenhum número conectado'}
+                            </p>
+                          </div>
+                          <span
+                            className={
+                              'inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ' +
+                              (st.tone === 'connected'
+                                ? 'border-emerald-700/50 bg-emerald-950/30 text-emerald-300'
+                                : st.tone === 'pending'
+                                  ? 'border-amber-700/50 bg-amber-950/30 text-amber-300'
+                                  : 'border-border bg-muted text-muted-foreground')
+                            }
+                          >
+                            {st.tone === 'connected' ? (
+                              <>
+                                <CheckCircle2 className="size-3" />
+                                Conectado
+                              </>
+                            ) : st.tone === 'pending' ? (
+                              <>
+                                <AlertTriangle className="size-3" />
+                                Não registrado
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="size-3" />
+                                Sem número
+                              </>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Corrupted-token reset banner */}
         {showResetBanner && (
           <Alert className="bg-amber-950/40 border-amber-600/40">
@@ -607,6 +849,30 @@ export function WhatsAppConfig() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Conexão 1-clique (Coexistence) — o cliente conecta mantendo o app
+                WhatsApp Business. Só aparece se o app/config de coex estiver no
+                ambiente; o formulário de token abaixo continua como alternativa. */}
+            <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
+              <p className="text-sm font-medium text-foreground">Conexão rápida</p>
+              <p className="text-xs text-muted-foreground">
+                Conecte pelo Facebook. Na tela da Meta você escolhe: <b>número novo</b>
+                {' '}(oficial, verifica por SMS/voz) ou <b>conectar seu WhatsApp Business
+                existente</b> (coexistence). Selecione a unidade acima antes de conectar.
+              </p>
+              <CoexConnectButton
+                unitId={activeUnitId}
+                onConnected={() => {
+                  if (accountId) void fetchConfig(accountId, activeUnitId);
+                }}
+              />
+            </div>
+
+            <div className="flex items-center gap-3 py-1">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] uppercase tracking-wide text-muted-foreground">ou com token manual</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
             <div className="space-y-2">
               <Label className="text-muted-foreground">{t('phoneNumberId')}</Label>
               <Input
@@ -718,6 +984,8 @@ export function WhatsAppConfig() {
                   variant="outline"
                   size="icon"
                   onClick={handleCopyWebhookUrl}
+                  aria-label="Copiar URL do webhook"
+                  title="Copiar URL do webhook"
                   className="shrink-0 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
                 >
                   <Copy className="size-4" />
@@ -916,6 +1184,16 @@ export function WhatsAppConfig() {
         </Card>
       </div>
     </div>
+
+    {/* Consumo por unidade + tarifas (Feature C, só admin — se esconde nos demais). */}
+    <BillingPanel />
+
+    {/* Canal RedeZap (uazapi) por unidade — self-service (só admin). */}
+    <UazapiChannelPanel />
+    {/* Conexão redezap (híbrido por custo) por unidade — só admin. */}
+    <ConexaoRedezapPanel />
+    {/* Perfil do WhatsApp Business (foto + campos + username atrás de flag) — só admin. */}
+    <PerfilWhatsappPanel />
     </section>
   );
 }

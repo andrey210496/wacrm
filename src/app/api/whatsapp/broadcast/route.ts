@@ -4,6 +4,7 @@ import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -15,6 +16,20 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit'
+
+// O fan-out abaixo é sequencial (até 2 chamadas Meta por destinatário) e roda
+// INLINE no ciclo do request. Sem teto de duração, um lote grande estouraria o
+// tempo da função serverless.
+export const maxDuration = 60
+
+/**
+ * Teto de destinatários por chamada. O wizard já fatia em lotes de 10 no
+ * cliente, mas a rota não tinha teto interno: um chamador direto podia mandar
+ * milhares num único request e travar a função. Campanhas grandes devem passar
+ * pelo caminho durável (`/api/v1/broadcasts` + resume), que roda em background
+ * com lock e é retomável.
+ */
+const MAX_RECIPIENTS_PER_CALL = 100
 
 interface BroadcastResult {
   phone: string
@@ -113,6 +128,15 @@ export async function POST(request: Request) {
       )
     }
 
+    if (recipients.length > MAX_RECIPIENTS_PER_CALL) {
+      return NextResponse.json(
+        {
+          error: `Muitos destinatários em uma só chamada (máx ${MAX_RECIPIENTS_PER_CALL}). Use o fluxo de campanha, que envia em lotes e pode retomar.`,
+        },
+        { status: 400 }
+      )
+    }
+
     if (!template_name) {
       return NextResponse.json(
         { error: 'template_name is required' },
@@ -120,10 +144,21 @@ export async function POST(request: Request) {
       )
     }
 
+    // This legacy route carries no per-recipient/per-conversation unit,
+    // so the broadcast goes out from the OPERATOR's unit (topbar has no
+    // server context here → resolves the caller's profile unit, else the
+    // account's default/oldest unit). Both the WhatsApp config and the
+    // template row below are then resolved by that same unit so they can
+    // never mismatch — a template belongs to one unit's WABA (migration
+    // 048) and the config is keyed UNIQUE(unit_id) (migration 042).
+    const unitId = await resolveOperatorUnitId(supabase, accountId, userId)
+
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+      .eq('unit_id', unitId)
+      .limit(1)
       .single()
 
     if (configError || !config) {
@@ -146,6 +181,7 @@ export async function POST(request: Request) {
     const resolvedTemplate = await resolveTemplateRow(
       supabase,
       accountId,
+      unitId,
       template_name,
       template_language,
     )
@@ -171,7 +207,7 @@ export async function POST(request: Request) {
         results.push({
           phone: recipient.phone,
           status: 'failed',
-          error: 'Invalid phone number format',
+          error: 'Formato de número de telefone inválido',
         })
         failedCount++
         continue

@@ -42,6 +42,7 @@ import {
   deliverBroadcast,
   BroadcastError,
 } from '@/lib/whatsapp/broadcast-core';
+import { getDefaultUnitId } from '@/lib/units/default-unit';
 
 export async function POST(request: Request) {
   try {
@@ -61,6 +62,11 @@ export async function POST(request: Request) {
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
+    // The public API has no per-unit key or unit selector yet — it
+    // targets the account's default unit. Per-unit API broadcast
+    // routing is a future enhancement (SP2).
+    const unitId = await getDefaultUnitId(ctx.supabase, ctx.accountId);
+
     const plan = await createBroadcast(ctx.supabase, ctx.accountId, auditUserId, {
       name: typeof body.name === 'string' ? body.name : null,
       templateName,
@@ -72,6 +78,7 @@ export async function POST(request: Request) {
         to: typeof r?.to === 'string' ? r.to : '',
         params: Array.isArray(r?.params) ? r.params : undefined,
       })),
+      unitId,
     });
 
     // Fan out after the response is sent. Uses the same service-role
