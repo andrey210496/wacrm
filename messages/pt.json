@@ -27,6 +27,7 @@
     "aiAgents": "Agentes de IA",
     "settings": "Configurações",
     "ajuda": "Ajuda",
+    "support": "Suporte",
     "beta": "Beta",
     "unreadConversations": "{count} {count, plural, =1 {conversa não lida} other {conversas não lidas}}",
     "unreadNotifications": "{count} {count, plural, =1 {notificação não lida} other {notificações não lidas}}",
