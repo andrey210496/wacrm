@@ -17,6 +17,7 @@ import { QuickRepliesManager } from '@/components/settings/quick-replies-manager
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
+import { UnidadesManager } from '@/components/settings/unidades-manager';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import {
   resolveSection,
@@ -80,13 +81,14 @@ function SettingsPageInner() {
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,
+    unidades: <UnidadesManager />,
     api: <ApiKeysSettings />,
   };
 
   return (
     <div>
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
           {t('pageTitle')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">

@@ -41,7 +41,7 @@ export async function ensureImageHeaderHandle(
   // other outbound-fetch call sites (see lib/webhooks/ssrf.ts) — matching
   // the unreachable-host message keeps the failure from being an oracle.
   if (!(await isDeliverableUrl(payload.header_media_url))) {
-    throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
+    throw new Error('Não foi possível buscar a URL da imagem do cabeçalho. Verifique se ela é acessível publicamente.')
   }
 
   // Fetch the sample image bytes (works for our uploaded chat-media URL
@@ -56,24 +56,24 @@ export async function ensureImageHeaderHandle(
       signal: AbortSignal.timeout(10_000),
     })
   } catch {
-    throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
+    throw new Error('Não foi possível buscar a URL da imagem do cabeçalho. Verifique se ela é acessível publicamente.')
   }
   if (!res.ok) {
-    throw new Error(`Header image URL returned ${res.status}. It must be publicly reachable.`)
+    throw new Error(`A URL da imagem do cabeçalho retornou ${res.status}. Ela precisa ser acessível publicamente.`)
   }
 
   const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
   if (contentType && !ALLOWED_IMAGE_TYPES.includes(contentType)) {
-    throw new Error(`Header image must be JPEG or PNG (got ${contentType}).`)
+    throw new Error(`A imagem do cabeçalho deve ser JPEG ou PNG (recebido ${contentType}).`)
   }
 
   const bytes = new Uint8Array(await res.arrayBuffer())
   if (bytes.byteLength === 0) {
-    throw new Error('Header image is empty.')
+    throw new Error('A imagem do cabeçalho está vazia.')
   }
   if (bytes.byteLength > IMAGE_MAX_BYTES) {
     throw new Error(
-      `Header image is ${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB — Meta's limit is 5 MB.`,
+      `A imagem do cabeçalho tem ${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB — o limite da Meta é 5 MB.`,
     )
   }
 

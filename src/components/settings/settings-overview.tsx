@@ -123,8 +123,12 @@ export function SettingsOverview({
       const [row, health] = await Promise.allSettled([
         supabase
           .from('whatsapp_config')
+          // .limit(1): an account may hold multiple config rows (one per
+          // unit, migration 042); a bare .maybeSingle() errors on ≥2. Any
+          // row is enough to show "connected" on the overview.
           .select('phone_number_id')
           .eq('account_id', acctId)
+          .limit(1)
           .maybeSingle(),
         fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) => r.json()),
       ]);

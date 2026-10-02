@@ -621,7 +621,9 @@ export function ContactDetailView({
                           </p>
                           <button
                             onClick={() => deleteNote(note.id)}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0"
+                            aria-label="Excluir nota"
+                            title="Excluir nota"
+                            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0 motion-reduce:transition-none"
                           >
                             <Trash2 className="size-3.5" />
                           </button>
@@ -753,6 +755,9 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+      // The send find-or-creates a conversation in the contact's unit, so
+      // scope the picker to that unit's templates (migration 048).
+      unitId={contact?.unit_id ?? null}
     />
     </>
   );

@@ -15,6 +15,7 @@ import {
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
 import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
+import { getDefaultUnitId } from '@/lib/units/default-unit'
 
 /**
  * Shared upsert payload builder — both the Meta-failure path and the
@@ -23,6 +24,7 @@ import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
  */
 function buildUpsertRow(
   accountId: string,
+  unitId: string,
   userId: string,
   payload: TemplatePayload,
   extras: {
@@ -36,9 +38,13 @@ function buildUpsertRow(
     // of migration 017. Without this an INSERT throws on the
     // not-null constraint.
     account_id: accountId,
-    // Original author — kept as audit only. The unique index is
-    // still on (user_id, name, language) — see the upsert helper
-    // for the cross-teammate dedup follow-up.
+    // Owning unidade — the WABA this template is registered on
+    // (migration 048). NOT NULL, and part of the new unique index
+    // (account_id, unit_id, name, language), so the same name can
+    // coexist across units.
+    unit_id: unitId,
+    // Original author — kept as audit only. Dedup is now by
+    // (account_id, unit_id, name, language) — see the upsert helper.
     user_id: userId,
     name: payload.name,
     category: payload.category,
@@ -65,14 +71,13 @@ async function upsertTemplateRow(
   supabase: SupabaseClient,
   row: ReturnType<typeof buildUpsertRow>,
 ) {
-  // TODO(account-sharing): conflict target is still scoped to
-  // user_id. Once a follow-up migration drops the legacy unique
-  // index on (user_id, name, language) and adds (account_id,
-  // name, language), switch `onConflict` here so two teammates
-  // can't shadow each other's same-named template.
+  // Conflict target matches the unique index migration 048 created:
+  // (account_id, unit_id, name, language). Re-submitting the same
+  // name/language for the same unit updates the existing row; the same
+  // name in a different unit is a distinct template on a distinct WABA.
   return supabase
     .from('message_templates')
-    .upsert(row, { onConflict: 'user_id,name,language' })
+    .upsert(row, { onConflict: 'account_id,unit_id,name,language' })
     .select()
     .single()
 }
@@ -127,6 +132,32 @@ export async function POST(request: Request) {
       )
     }
 
+    // A template is registered on ONE unit's WABA (migration 048), so the
+    // creator picks which unit. The client sends `unit_id`; validate it
+    // belongs to this account (an admin could otherwise stamp a foreign
+    // unit — RLS' can_see_unit backstops the insert, but a clear 400 beats
+    // a confusing RLS rejection). No unit given → the account's default.
+    const rawUnitId = (payload as { unit_id?: unknown }).unit_id
+    const requestedUnitId = typeof rawUnitId === 'string' ? rawUnitId : null
+    let unitId: string
+    if (requestedUnitId) {
+      const { data: unit, error: unitErr } = await supabase
+        .from('unidades')
+        .select('id')
+        .eq('id', requestedUnitId)
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (unitErr || !unit) {
+        return NextResponse.json(
+          { error: 'Invalid unit for this account.' },
+          { status: 400 },
+        )
+      }
+      unitId = unit.id
+    } else {
+      unitId = await getDefaultUnitId(supabase, accountId)
+    }
+
     const dryRun =
       process.env.WHATSAPP_TEMPLATES_DRY_RUN === 'true' ||
       process.env.WHATSAPP_TEMPLATES_DRY_RUN === '1'
@@ -138,10 +169,16 @@ export async function POST(request: Request) {
       metaTemplateId = `dry-run-${crypto.randomUUID()}`
       metaStatus = 'PENDING'
     } else {
+      // Submit against the CHOSEN unit's WABA (migration 042,
+      // UNIQUE(unit_id)). The template's meta_template_id is minted on
+      // this WABA, so it must be the same unit the row is stamped with.
+      // `.limit(1)` guards a stray duplicate before `.single()`.
       const { data: config, error: configError } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
+        .eq('unit_id', unitId)
+        .limit(1)
         .single()
       if (configError || !config) {
         return NextResponse.json(
@@ -192,7 +229,7 @@ export async function POST(request: Request) {
         // until they fix and re-submit.
         await upsertTemplateRow(
           supabase,
-          buildUpsertRow(accountId, userId, payload, {
+          buildUpsertRow(accountId, unitId, userId, payload, {
             status: 'DRAFT',
             metaTemplateId: null,
             submissionError: message,
@@ -212,7 +249,7 @@ export async function POST(request: Request) {
 
     const { data: row, error: upsertErr } = await upsertTemplateRow(
       supabase,
-      buildUpsertRow(accountId, userId, payload, {
+      buildUpsertRow(accountId, unitId, userId, payload, {
         status: normalizeStatus(metaStatus),
         metaTemplateId,
         submissionError: null,

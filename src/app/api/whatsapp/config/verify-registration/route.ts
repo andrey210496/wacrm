@@ -55,17 +55,21 @@ export async function GET() {
     })
   }
 
+  // .limit(1): an account may hold multiple config rows (one per unit,
+  // migration 042); a bare .maybeSingle() errors on ≥2. Registration
+  // status is shared across an account's numbers for this check.
   const { data: config } = await supabase
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .limit(1)
     .maybeSingle()
 
   if (!config) {
     return NextResponse.json({
       live: false,
       checks: { config_exists: false },
-      message: 'No WhatsApp configuration saved yet.',
+      message: 'Nenhuma configuração do WhatsApp salva ainda.',
     })
   }
 

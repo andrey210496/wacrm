@@ -275,6 +275,7 @@ function FieldRow({
         disabled={busy}
         onClick={() => onDelete(field)}
         title={t('deleteTitle')}
+        aria-label={t('deleteTitle')}
         className="shrink-0 text-muted-foreground hover:text-red-400"
       >
         {busy ? (

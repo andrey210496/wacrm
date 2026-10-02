@@ -6,6 +6,7 @@ import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Loader2, FileText, ArrowRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useUnitScope } from '@/components/units/unit-scope-provider';
 
 const categoryColors: Record<string, string> = {
   Marketing: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -22,9 +23,18 @@ interface Step1Props {
 
 export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack }: Step1Props) {
   const t = useTranslations('Broadcasts.wizard');
+  const { selectedUnitId, visibleUnits } = useUnitScope();
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // A broadcast is sent from ONE unit's WABA, so only that unit's
+  // templates can go out. The broadcast will be stamped with the topbar
+  // unit (or, in the admin "all units" view, the account's default —
+  // the oldest visible unit, matching resolveOperatorUnitId's fallback),
+  // so filter to the same unit. When neither is known, RLS still scopes
+  // an agent to their own unit's rows.
+  const effectiveUnitId = selectedUnitId ?? visibleUnits[0]?.id ?? null;
 
   useEffect(() => {
     async function fetchTemplates() {
@@ -33,11 +43,14 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         // Only APPROVED templates can be sent via Meta — anything else
         // would 400 at broadcast time. Hide them rather than letting
         // the user pick a template that will fail.
-        const { data, error: fetchError } = await supabase
+        let query = supabase
           .from('message_templates')
           .select('*')
-          .eq('status', 'APPROVED')
-          .order('created_at', { ascending: false });
+          .eq('status', 'APPROVED');
+        if (effectiveUnitId) query = query.eq('unit_id', effectiveUnitId);
+        const { data, error: fetchError } = await query.order('created_at', {
+          ascending: false,
+        });
 
         if (fetchError) throw fetchError;
         setTemplates(data ?? []);
@@ -48,8 +61,10 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
       }
     }
 
+    setLoading(true);
     fetchTemplates();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveUnitId]);
 
   if (loading) {
     return (

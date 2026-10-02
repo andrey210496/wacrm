@@ -48,7 +48,7 @@ export async function POST(request: Request) {
         .maybeSingle()
       if (!existing?.api_key) {
         return NextResponse.json(
-          { error: 'Enter an API key to test.' },
+          { error: 'Digite uma chave de API para testar.' },
           { status: 400 },
         )
       }
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
         apiKeyPlain = decrypt(existing.api_key)
       } catch {
         return NextResponse.json(
-          { error: 'Stored API key could not be decrypted — re-enter your key.' },
+          { error: 'A chave de API armazenada não pôde ser descriptografada — reinsira sua chave.' },
           { status: 400 },
         )
       }
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       }
       console.error('[ai/test] validation error:', err)
       return NextResponse.json(
-        { error: 'Could not validate the API key.' },
+        { error: 'Não foi possível validar a chave de API.' },
         { status: 400 },
       )
     }

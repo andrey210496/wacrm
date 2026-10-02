@@ -62,6 +62,7 @@ import {
 } from "@/components/interactive/interactive-builder"
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
+import { useUnitScope } from "@/components/units/unit-scope-provider"
 import {
   childPath,
   insertAt,
@@ -247,12 +248,21 @@ function useResources(): AutomationResources {
 }
 
 function ResourcesProvider({ children }: { children: ReactNode }) {
+  const { selectedUnitId, visibleUnits } = useUnitScope()
   const [tags, setTags] = useState<TagRecord[]>([])
   const [members, setMembers] = useState<AccountMember[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
+
+  // A template can be sent only from its own unit's WABA (migration 048).
+  // At send time the automation resolves the template against the target
+  // conversation's unit, so scope the picker to the unit the author is
+  // working in — the topbar unit, or the account default (oldest visible
+  // unit) in the admin "all units" view. Null → no filter (RLS still
+  // scopes an agent to their own unit's rows).
+  const effectiveUnitId = selectedUnitId ?? visibleUnits[0]?.id ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -261,16 +271,18 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
     // Tags, templates and custom fields come straight from the DB — RLS
     // scopes them to the caller's account. Only APPROVED templates can
     // actually be sent (anything else 400s at send time), matching the
-    // broadcast picker.
+    // broadcast picker; templates are additionally scoped to the unit.
     void (async () => {
+      let templatesQuery = supabase
+        .from("message_templates")
+        .select("*")
+        .eq("status", "APPROVED")
+      if (effectiveUnitId)
+        templatesQuery = templatesQuery.eq("unit_id", effectiveUnitId)
       const [tagsRes, templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
         await Promise.all([
           supabase.from("tags").select("*").order("name"),
-          supabase
-            .from("message_templates")
-            .select("*")
-            .eq("status", "APPROVED")
-            .order("name"),
+          templatesQuery.order("name"),
           supabase.from("custom_fields").select("*").order("field_name"),
           supabase.from("pipelines").select("id, name").order("name"),
           supabase
@@ -303,7 +315,8 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveUnitId])
 
   return (
     <ResourcesContext.Provider

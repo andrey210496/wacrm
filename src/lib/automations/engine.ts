@@ -24,6 +24,7 @@ import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { getDefaultUnitId } from '@/lib/units/default-unit'
 
 // ------------------------------------------------------------
 // Public API
@@ -569,10 +570,30 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .select('default_currency')
         .eq('id', args.automation.account_id)
         .maybeSingle()
+      // Stamp unit_id (NOT NULL since migration 043). The deal belongs to
+      // the triggering contact's unit; fall back to the automation's own
+      // unit_id (also NOT NULL) and finally the account default. This
+      // insert runs via the service-role client (RLS bypassed), so any
+      // valid non-null unit satisfies the not-null constraint.
+      let unitId: string | null = null
+      if (args.contactId) {
+        const { data: contact } = await db
+          .from('contacts')
+          .select('unit_id')
+          .eq('id', args.contactId)
+          .maybeSingle()
+        unitId = (contact?.unit_id as string | null | undefined) ?? null
+      }
+      if (!unitId) {
+        unitId =
+          (args.automation as { unit_id?: string | null }).unit_id ??
+          (await getDefaultUnitId(db, args.automation.account_id))
+      }
       await db.from('deals').insert({
         // Tenancy + audit, same split as automation_logs above.
         account_id: args.automation.account_id,
         user_id: args.automation.user_id,
+        unit_id: unitId,
         pipeline_id: cfg.pipeline_id,
         stage_id: cfg.stage_id,
         contact_id: args.contactId,

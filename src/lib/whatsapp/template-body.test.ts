@@ -92,21 +92,29 @@ describe('templateBodyParams', () => {
 });
 
 describe('resolveTemplateRow', () => {
-  it('scopes the lookup to the account and template name', async () => {
+  it('scopes the lookup to the account, unit and template name', async () => {
     const filters: Record<string, unknown> = {};
     await resolveTemplateRow(
       dbReturning([row({})], filters),
       'acct-1',
+      'unit-1',
       'order_update',
       'en_US'
     );
-    expect(filters).toEqual({ account_id: 'acct-1', name: 'order_update' });
+    // unit_id is part of the scope now: the same name can repeat across
+    // units (migration 048), so a bare account+name match is ambiguous.
+    expect(filters).toEqual({
+      account_id: 'acct-1',
+      unit_id: 'unit-1',
+      name: 'order_update',
+    });
   });
 
   it("matches a synced 'en' row when the caller asks for 'en_US' (#483)", async () => {
     const resolved = await resolveTemplateRow(
       dbReturning([row({ language: 'en' })]),
       'acct-1',
+      'unit-1',
       'order_update',
       'en_US'
     );
@@ -119,6 +127,7 @@ describe('resolveTemplateRow', () => {
     const resolved = await resolveTemplateRow(
       dbReturning([row({ language: 'en' })]),
       'acct-1',
+      'unit-1',
       'order_update',
       null
     );
@@ -135,6 +144,7 @@ describe('resolveTemplateRow', () => {
         row({ id: 'b', language: 'en_GB' }),
       ]),
       'acct-1',
+      'unit-1',
       'order_update',
       'en_GB'
     );
@@ -149,6 +159,7 @@ describe('resolveTemplateRow', () => {
         row({ id: 'en', language: 'en' }),
       ]),
       'acct-1',
+      'unit-1',
       'order_update'
     );
     expect(resolved.row?.id).toBe('us');
@@ -158,6 +169,7 @@ describe('resolveTemplateRow', () => {
     const resolved = await resolveTemplateRow(
       dbReturning([]),
       'acct-1',
+      'unit-1',
       'missing',
       'fr'
     );
@@ -168,6 +180,7 @@ describe('resolveTemplateRow', () => {
     const resolved = await resolveTemplateRow(
       dbReturning([{ id: 'tpl-1', language: 'en_US' /* no body_text */ }]),
       'acct-1',
+      'unit-1',
       'order_update',
       'en_US'
     );
@@ -179,6 +192,7 @@ describe('resolveTemplateRow', () => {
     const resolved = await resolveTemplateRow(
       dbReturning([row({ language: 'es' })]),
       'acct-1',
+      'unit-1',
       'order_update',
       'de'
     );

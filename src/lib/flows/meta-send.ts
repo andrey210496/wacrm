@@ -82,10 +82,27 @@ export async function engineSendText(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
+  // Resolve THIS conversation's unit so the send goes out from that
+  // unit's WhatsApp number (migration 043 stamps unit_id on conversations).
+  const { data: conversation, error: convErr } = await db
+    .from('conversations')
+    .select('unit_id')
+    .eq('id', args.conversationId)
+    .eq('account_id', args.accountId)
+    .maybeSingle()
+  if (convErr || !conversation?.unit_id) {
+    throw new Error('conversation not found for this account')
+  }
+
+  // Config for the conversation's unit (migration 042, UNIQUE(unit_id)).
+  // `account_id` stays as defense-in-depth; `.limit(1)` guards a stray
+  // duplicate before `.single()`.
   const { data: config, error: configErr } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', args.accountId)
+    .eq('unit_id', conversation.unit_id)
+    .limit(1)
     .single()
   if (configErr || !config) {
     throw new Error('WhatsApp not configured for this account')
@@ -192,10 +209,27 @@ export async function engineSendMedia(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
+  // Resolve THIS conversation's unit so the send goes out from that
+  // unit's WhatsApp number (migration 043 stamps unit_id on conversations).
+  const { data: conversation, error: convErr } = await db
+    .from('conversations')
+    .select('unit_id')
+    .eq('id', args.conversationId)
+    .eq('account_id', args.accountId)
+    .maybeSingle()
+  if (convErr || !conversation?.unit_id) {
+    throw new Error('conversation not found for this account')
+  }
+
+  // Config for the conversation's unit (migration 042, UNIQUE(unit_id)).
+  // `account_id` stays as defense-in-depth; `.limit(1)` guards a stray
+  // duplicate before `.single()`.
   const { data: config, error: configErr } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', args.accountId)
+    .eq('unit_id', conversation.unit_id)
+    .limit(1)
     .single()
   if (configErr || !config) {
     throw new Error('WhatsApp not configured for this account')
@@ -344,10 +378,27 @@ async function sendInteractiveViaMeta(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
+  // Resolve THIS conversation's unit so the send goes out from that
+  // unit's WhatsApp number (migration 043 stamps unit_id on conversations).
+  const { data: conversation, error: convErr } = await db
+    .from('conversations')
+    .select('unit_id')
+    .eq('id', input.conversationId)
+    .eq('account_id', input.accountId)
+    .maybeSingle()
+  if (convErr || !conversation?.unit_id) {
+    throw new Error('conversation not found for this account')
+  }
+
+  // Config for the conversation's unit (migration 042, UNIQUE(unit_id)).
+  // `account_id` stays as defense-in-depth; `.limit(1)` guards a stray
+  // duplicate before `.single()`.
   const { data: config, error: configErr } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', input.accountId)
+    .eq('unit_id', conversation.unit_id)
+    .limit(1)
     .single()
   if (configErr || !config) {
     throw new Error('WhatsApp not configured for this account')

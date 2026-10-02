@@ -26,9 +26,14 @@ export function useTotalUnread(): number {
     // Initial load. RLS scopes this to the signed-in user automatically —
     // no explicit user_id filter needed here.
     (async () => {
+      // Só as conversas COM não-lidas — a esmagadora maioria está lida, então
+      // filtrar no servidor evita puxar a coleção inteira (perf: este hook roda
+      // na sidebar global, em toda navegação). O realtime abaixo mantém o mapa
+      // em dia (inclusive quando uma conversa volta a zerar).
       const { data, error } = await supabase
         .from("conversations")
-        .select("id, unread_count");
+        .select("id, unread_count")
+        .gt("unread_count", 0);
       if (cancelled || error || !data) return;
 
       const map = new Map<string, number>();

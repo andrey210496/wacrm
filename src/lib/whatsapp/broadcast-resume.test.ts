@@ -132,6 +132,7 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
         select: () => b,
         eq: () => b,
         order: () => b,
+        limit: () => b,
         in: (col: string, vals: unknown) => {
           if (col === 'status') writes.statusFilter = vals;
           if (col === 'id') writes.failedIds = vals;
@@ -168,6 +169,8 @@ const BROADCAST = {
   id: 'bc-1',
   template_name: 'order_update',
   template_language: 'en_US',
+  // A resume resolves the send config by the broadcast's own unit.
+  unit_id: 'unit-1',
 };
 
 const CONFIG = { phone_number_id: 'pn-1', access_token: 'tok' };
@@ -223,6 +226,34 @@ describe('planBroadcastResume', () => {
     expect(plan.accessToken).toBe('decrypted:tok');
     expect(remaining).toBe(0);
     expect(unsendable).toBe(0);
+  });
+
+  it('carrega header_media_url da campanha pro plano', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: { ...BROADCAST, header_media_url: 'https://cdn.example.com/promo.jpg' },
+        config: CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBe('https://cdn.example.com/promo.jpg');
+  });
+
+  it('deixa headerMediaUrl indefinido quando a campanha não tem mídia', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBeUndefined();
   });
 
   it('scopes to failed rows when retrying, and to both for "all"', async () => {

@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
-import { Inter } from "next/font/google";
+import { Inter, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ThemedToaster } from "@/components/themed-toaster";
+import { readPublicEnv } from "@/lib/public-env";
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
@@ -15,23 +16,37 @@ import {
   THEME_IDS,
 } from "@/lib/themes";
 
+// Renderiza toda a árvore em tempo de request. Sem isso, páginas como /login e
+// /signup são pré-renderizadas no BUILD, e o `window.__ENV__` injetado abaixo
+// carregaria os valores do build (vazios na imagem SILO genérica) em vez dos do
+// runtime do container. Forçar dinâmico garante que a config pública do Supabase
+// injetada reflita o env do container — é o que permite 1 imagem servir cada
+// instância com o seu próprio Supabase. Ver src/lib/public-env.ts.
+export const dynamic = "force-dynamic";
+
 const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
 });
 
+// Display face for headings/brand moments — geometric grotesque, used
+// with restraint (headings only) so the UI keeps Inter's legibility.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: "RedeZap",
+    template: "%s — RedeZap",
   },
   description: "Self-hostable CRM template for WhatsApp.",
   robots: {
     index: false,
     follow: false,
-  },
-  icons: {
-    icon: [{ url: "/icon" }],
   },
   formatDetection: {
     email: false,
@@ -85,12 +100,18 @@ export default async function RootLayout({
   const locale = await getLocale();
   const messages = await getMessages();
 
+  // Config pública lida do env de RUNTIME do servidor, injetada antes da
+  // hidratação (window.__ENV__) pro browser client do Supabase — 1 imagem,
+  // muitos clientes SILO. Só URL + anon key (públicas); nada de segredo.
+  const publicEnv = readPublicEnv();
+  const ENV_BOOT_SCRIPT = `window.__ENV__=${JSON.stringify(publicEnv)};`;
+
   return (
     <html
       lang={locale}
       data-theme={DEFAULT_THEME}
       data-mode={DEFAULT_MODE}
-      className={`${inter.variable} h-full antialiased`}
+      className={`${inter.variable} ${spaceGrotesk.variable} h-full antialiased`}
       // The `theme-boot` script below rewrites `data-theme` and
       // `data-mode` on <html> from localStorage before React hydrates,
       // so for any non-default choice the client DOM intentionally
@@ -101,6 +122,11 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <Script
+          id="env-boot"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: ENV_BOOT_SCRIPT }}
+        />
         <Script
           id="theme-boot"
           strategy="beforeInteractive"

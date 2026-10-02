@@ -13,6 +13,9 @@ type ContactRow = { id: string; phone: string; name?: string | null };
 
 interface Script {
   config?: { user_id: string } | null; // whatsapp_config.maybeSingle
+  /** Default unit id getDefaultUnitId resolves (unidades.maybeSingle).
+   *  Defaults to 'unit-1' when the script omits it. */
+  defaultUnitId?: string | null;
   contactCandidates?: ContactRow[]; // contacts .like (same every call)
   /** Per-call `.like` results — overrides contactCandidates. Lets a
    *  test simulate "miss, then hit" for the unique-race path. */
@@ -56,7 +59,9 @@ function makeDb(script: Script): SupabaseClient {
         convLookupCalls++;
         return Promise.resolve({ data: row ? [row] : [], error: null });
       }
-      return Promise.resolve({ data: [], error: null });
+      // Everything else chains on (e.g. whatsapp_config / unidades now do
+      // `.limit(1).maybeSingle()` — multi-config/unit tolerant).
+      return builder;
     },
     like: () => {
       const data = script.contactCandidatesByCall
@@ -68,6 +73,14 @@ function makeDb(script: Script): SupabaseClient {
     maybeSingle: () => {
       if (table === 'whatsapp_config')
         return Promise.resolve({ data: script.config ?? null, error: null });
+      if (table === 'unidades') {
+        const unitId =
+          script.defaultUnitId === undefined ? 'unit-1' : script.defaultUnitId;
+        return Promise.resolve({
+          data: unitId ? { id: unitId } : null,
+          error: null,
+        });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     single: () => {

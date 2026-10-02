@@ -32,6 +32,8 @@ interface Step4Props {
   onSaveDraft?: () => void;
   onBack: () => void;
   isProcessing: boolean;
+  /** Salvando o rascunho — desabilita/rotula só o botão de rascunho. */
+  savingDraft?: boolean;
   progress: number;
 }
 
@@ -44,6 +46,7 @@ export function Step4ScheduleSend({
   onSaveDraft,
   onBack,
   isProcessing,
+  savingDraft = false,
   progress,
 }: Step4Props) {
   const t = useTranslations('Broadcasts.wizard');
@@ -179,11 +182,15 @@ export function Step4ScheduleSend({
             <Button
               variant="outline"
               onClick={onSaveDraft}
-              disabled={!name.trim() || isProcessing}
+              disabled={!name.trim() || isProcessing || savingDraft}
               className="border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
             >
-              <Save className="h-4 w-4" />
-              {t('scheduleSend.saveDraft')}
+              {savingDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {savingDraft ? 'Salvando…' : t('scheduleSend.saveDraft')}
             </Button>
           )}
 

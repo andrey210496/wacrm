@@ -41,6 +41,7 @@ const { middleware } = await import("./middleware");
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+  delete process.env.SIGNUP_DISABLED;
   mockUser = null;
   refreshedCookies = [];
 });
@@ -109,5 +110,37 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+});
+
+describe("middleware — closed signup (SIGNUP_DISABLED)", () => {
+  it("redirects an anonymous visitor away from /signup when disabled", async () => {
+    process.env.SIGNUP_DISABLED = "true";
+    mockUser = null;
+
+    const res = await middleware(new NextRequest("https://app.test/signup"));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+
+  it("still allows /signup with a valid invite token when disabled", async () => {
+    process.env.SIGNUP_DISABLED = "true";
+    mockUser = null;
+
+    const res = await middleware(
+      new NextRequest("https://app.test/signup?invite=abc123"),
+    );
+
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("leaves /signup reachable when SIGNUP_DISABLED is unset", async () => {
+    delete process.env.SIGNUP_DISABLED;
+    mockUser = null;
+
+    const res = await middleware(new NextRequest("https://app.test/signup"));
+
+    expect(res.headers.get("location")).toBeNull();
   });
 });

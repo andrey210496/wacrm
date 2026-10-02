@@ -196,6 +196,8 @@ vi.mock('@/lib/flows/admin-client', () => ({
 interface CapturedWrites {
   message?: Record<string, unknown>;
   conversation?: Record<string, unknown>;
+  /** Filters applied to the whatsapp_config lookup — proves per-unit scoping. */
+  configFilters?: Record<string, unknown>;
 }
 
 /**
@@ -210,6 +212,7 @@ function sendPathDb(
 ): SupabaseClient {
   const conversation = {
     id: 'cv-1',
+    unit_id: 'unit-cv',
     contact: { id: 'ct-1', phone: '+15551234567' },
   };
   const config = {
@@ -222,7 +225,13 @@ function sendPathDb(
     from(table: string) {
       const builder: Record<string, unknown> = {
         select: () => builder,
-        eq: () => builder,
+        eq: (col: string, val: unknown) => {
+          if (table === 'whatsapp_config') {
+            (captured.configFilters ??= {})[col] = val;
+          }
+          return builder;
+        },
+        limit: () => builder,
         insert: (row: Record<string, unknown>) => {
           if (table === 'messages') captured.message = row;
           return builder;
@@ -330,6 +339,21 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
       (sendTemplateMessage.mock.calls[0] as unknown as [{ language: string }])[0]
         .language
     ).toBe('en');
+  });
+
+  it('resolves the WhatsApp config by the conversation unit (per-unit send routing)', async () => {
+    const captured: CapturedWrites = {};
+    await sendMessageToConversation(sendPathDb([TEMPLATE_ROW], captured), 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'hi',
+    });
+    // The send goes out FROM the conversation's own unit's number, not an
+    // arbitrary account config.
+    expect(captured.configFilters).toMatchObject({
+      account_id: 'acct-1',
+      unit_id: 'unit-cv',
+    });
   });
 
   it('leaves content_text null when the account has no local template row', async () => {

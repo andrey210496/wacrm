@@ -107,7 +107,7 @@ export async function PATCH(
     if (issues.length > 0) {
       return NextResponse.json(
         {
-          error: 'Cannot keep automation active with invalid configuration',
+          error: 'Não é possível manter a automação ativa com configuração inválida',
           issues,
         },
         { status: 400 },

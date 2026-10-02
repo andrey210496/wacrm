@@ -4,6 +4,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { getTemplate } from '@/lib/automations/templates'
 import { insertSteps, type BuilderStepInput } from '@/lib/automations/steps-tree'
+import { resolveOperatorUnitId } from '@/lib/units/operator-unit'
 import {
   validateStepsForActivation,
   validateTriggerForActivation,
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
   const accountId = profile?.account_id as string | undefined
   if (!accountId) {
     return NextResponse.json(
-      { error: 'Your profile is not linked to an account.' },
+      { error: 'Seu perfil não está vinculado a uma conta.' },
       { status: 403 },
     )
   }
@@ -98,11 +99,17 @@ export async function POST(request: Request) {
     ]
     if (issues.length > 0) {
       return NextResponse.json(
-        { error: 'Cannot activate automation with invalid configuration', issues },
+        { error: 'Não é possível ativar a automação com configuração inválida', issues },
         { status: 400 },
       )
     }
   }
+
+  // Stamp unit_id (NOT NULL since migration 043). This server route has no
+  // topbar context, so the automation belongs to the caller's own unit,
+  // falling back to the account default. The admin client below bypasses
+  // RLS, so any valid non-null unit satisfies the not-null constraint.
+  const unitId = await resolveOperatorUnitId(supabase, accountId, user.id, null)
 
   const admin = supabaseAdmin()
   const { data: automation, error: insertErr } = await admin
@@ -110,6 +117,7 @@ export async function POST(request: Request) {
     .insert({
       user_id: user.id,
       account_id: accountId,
+      unit_id: unitId,
       name: effectiveName,
       description: effectiveDescription ?? null,
       trigger_type: effectiveTriggerType,

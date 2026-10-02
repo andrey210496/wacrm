@@ -134,7 +134,7 @@ export async function POST(request: Request) {
       )
       if (!resolved) {
         return NextResponse.json(
-          { error: 'Failed to open a conversation for this contact' },
+          { error: 'Falha ao abrir uma conversa para este contato' },
           { status: 500 }
         )
       }

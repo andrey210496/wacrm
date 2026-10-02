@@ -91,7 +91,7 @@ export async function PATCH(
     // meta_template_id and status — fetch explicitly.
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
-      .select('id, name, status, meta_template_id, language')
+      .select('id, name, status, meta_template_id, language, unit_id')
       .eq('id', id)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -138,10 +138,16 @@ export async function PATCH(
     }
 
     if (!isDryRun()) {
+      // Edit the template on its OWN unit's WABA (migration 048). The
+      // meta_template_id was minted on that WABA, so the config must be
+      // the same unit's (migration 042, UNIQUE(unit_id)). `.limit(1)`
+      // guards a stray duplicate before `.single()`.
       const { data: config, error: configError } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
+        .eq('unit_id', existing.unit_id)
+        .limit(1)
         .single()
       if (configError || !config) {
         return NextResponse.json(
@@ -269,7 +275,7 @@ export async function DELETE(
 
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
-      .select('id, name, meta_template_id')
+      .select('id, name, meta_template_id, unit_id')
       .eq('id', id)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -278,10 +284,15 @@ export async function DELETE(
     }
 
     if (existing.meta_template_id && !isDryRun()) {
+      // Delete the template on its OWN unit's WABA (migration 048) —
+      // the same unit that holds its meta_template_id (migration 042,
+      // UNIQUE(unit_id)). `.limit(1)` guards a stray duplicate.
       const { data: config, error: configError } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', accountId)
+        .eq('unit_id', existing.unit_id)
+        .limit(1)
         .single()
       if (configError || !config || !config.waba_id) {
         return NextResponse.json(
