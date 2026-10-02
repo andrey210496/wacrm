@@ -3,6 +3,7 @@ import {
   isUazapiEligibleType,
   isBillableAtSend,
   shouldUseUazapi,
+  isFepOpen,
   chooseChannel,
 } from "./outbound-router";
 
@@ -60,6 +61,26 @@ describe("shouldUseUazapi (Bresenham)", () => {
   });
 });
 
+describe("isFepOpen", () => {
+  it("sem referral → fechada", () => {
+    expect(isFepOpen({ referralAt: null, now: OCT })).toBe(false);
+  });
+  it("referral há menos de 7 dias → aberta", () => {
+    const ref = new Date("2026-10-01T00:00:00Z"); // 4,5 dias antes de OCT (05/10 12:00)
+    expect(isFepOpen({ referralAt: ref, now: OCT })).toBe(true);
+  });
+  it("referral há exatamente/mais de 7 dias → fechada", () => {
+    const exactly7 = new Date(OCT.getTime() - 7 * 24 * 3600 * 1000);
+    expect(isFepOpen({ referralAt: exactly7, now: OCT })).toBe(false);
+    const older = new Date(OCT.getTime() - 8 * 24 * 3600 * 1000);
+    expect(isFepOpen({ referralAt: older, now: OCT })).toBe(false);
+  });
+  it("referral no futuro (relógio torto) → fechada, nunca negativa", () => {
+    const future = new Date(OCT.getTime() + 3600 * 1000);
+    expect(isFepOpen({ referralAt: future, now: OCT })).toBe(false);
+  });
+});
+
 describe("chooseChannel", () => {
   const base = {
     hybridEnabled: true,
@@ -71,6 +92,7 @@ describe("chooseChannel", () => {
     hasPhone: true,
     counter: 0,
     override: "auto" as const,
+    fepOpen: false,
   };
   it("override official vence", () => {
     expect(chooseChannel({ ...base, override: "official" }).channel).toBe("official");
@@ -106,6 +128,20 @@ describe("chooseChannel", () => {
   });
   it("template desvia como elegível (vira texto no executor)", () => {
     const r = chooseChannel({ ...base, messageType: "template", now: SEP, uazapiPct: 100 });
+    expect(r.channel).toBe("uazapi");
+  });
+  it("janela FEP aberta → grátis no oficial, fica oficial sem consumir contador (mesmo cobrável+100%)", () => {
+    const r = chooseChannel({ ...base, fepOpen: true, uazapiPct: 100 });
+    expect(r.channel).toBe("official");
+    expect(r.consumeCounter).toBe(false);
+  });
+  it("janela FEP aberta também poupa template (cobrável) do canal não-oficial", () => {
+    const r = chooseChannel({ ...base, fepOpen: true, messageType: "template", now: SEP, uazapiPct: 100 });
+    expect(r.channel).toBe("official");
+    expect(r.consumeCounter).toBe(false);
+  });
+  it("override uazapi ainda vence a janela FEP (decisão manual)", () => {
+    const r = chooseChannel({ ...base, fepOpen: true, override: "uazapi" });
     expect(r.channel).toBe("uazapi");
   });
 });

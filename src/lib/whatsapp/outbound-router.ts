@@ -19,6 +19,18 @@ export type ChannelOverride = "auto" | "official" | "uazapi";
 /** 2026-10-01 UTC: doc oficial da Meta — service messages passam a ser cobráveis. */
 const SERVICE_BILLABLE_FROM = Date.UTC(2026, 9, 1); // mês 0-based: 9 = outubro
 
+/**
+ * Janela FEP ("Free Entry Point"): doc oficial da Meta — quando a conversa vem
+ * de um anúncio Click-to-WhatsApp (ou CTA de Página) e a empresa responde, abre
+ * uma janela de PONTO DE ENTRADA GRATUITO que fica aberta por ATÉ 7 DIAS. Dentro
+ * dela a Meta NÃO cobra marketing/utilidade/autenticação/serviço. Como só temos
+ * o instante do referral de entrada (`referral_at`), aproximamos a janela por
+ * 7 dias a partir dele — heurística de ROTEAMENTO apenas (a cobrança real segue
+ * o flag `pricing.billable` do webhook). Erro conservador: no máximo deixamos de
+ * economizar com a uazapi; nunca gera cobrança indevida.
+ */
+const FEP_WINDOW_MS = 7 * 24 * 3600 * 1000;
+
 /** Tipos que a uazapi consegue enviar. Template vira texto renderizado; interativo NÃO. */
 const UAZAPI_ELIGIBLE = new Set([
   "text",
@@ -54,6 +66,16 @@ export function isBillableAtSend(p: {
 }
 
 /**
+ * A conversa está numa janela FEP aberta? (lead de anúncio dentro de 7 dias do
+ * referral de entrada). Guarda contra relógio torto: diferença negativa = fechada.
+ */
+export function isFepOpen(p: { referralAt: Date | null; now: Date }): boolean {
+  if (!p.referralAt) return false;
+  const delta = p.now.getTime() - p.referralAt.getTime();
+  return delta >= 0 && delta < FEP_WINDOW_MS;
+}
+
+/**
  * Distribuição INTERCALADA (Bresenham): exatamente `pct` acertos a cada 100,
  * espalhados (não um bloco). Determinística no contador.
  */
@@ -81,6 +103,8 @@ export function chooseChannel(p: {
   hasPhone: boolean;
   counter: number;
   override: ChannelOverride;
+  /** Lead de anúncio dentro da janela FEP (até 7 dias) → grátis no oficial. */
+  fepOpen: boolean;
 }): { channel: Channel; consumeCounter: boolean } {
   // Override manual/automação vence tudo.
   if (p.override === "official") return { channel: "official", consumeCounter: false };
@@ -93,6 +117,9 @@ export function chooseChannel(p: {
   if (!isUazapiEligibleType(p.messageType)) return { channel: "official", consumeCounter: false };
   // uazapi (WhatsApp Web) precisa de número — contato só-BSUID vai no oficial.
   if (!p.hasPhone) return { channel: "official", consumeCounter: false };
+  // Janela FEP aberta → TODA categoria é grátis no oficial; sem economia e com
+  // risco no canal não-oficial, fica oficial (não consome o contador de interleave).
+  if (p.fepOpen) return { channel: "official", consumeCounter: false };
   if (
     !isBillableAtSend({
       messageType: p.messageType,

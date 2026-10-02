@@ -2,8 +2,10 @@
  * Agregação pura do consumo de mensagens do WhatsApp (Feature C).
  *
  * A Meta manda no webhook de status a categoria e se a mensagem é cobrável
- * (`pricing`) — a fonte da verdade do que é cobrado (janela de 24h, FEP 72h,
- * tiers etc. já entram no cálculo dela). Aqui só CONTAMOS por categoria/unidade
+ * (`pricing`) — a fonte da verdade do que é cobrado. Toda a lógica de janela
+ * (CSW de 24h p/ conversa iniciada pelo lead; janela FEP de até 7 dias p/ leads
+ * de anúncio Click-to-WhatsApp; 1.000 mensagens de serviço grátis/mês por número,
+ * sem acúmulo) já entra no cálculo DELA. Aqui só CONTAMOS por categoria/unidade
  * e multiplicamos as cobráveis pela tarifa configurada para estimar o custo.
  *
  * Sem tarifa configurada (price 0), o custo estimado é 0 e o painel avisa

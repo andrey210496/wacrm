@@ -133,6 +133,39 @@ describe('sendMessageToConversation — roteamento híbrido', () => {
     expect(capture.row?.channel).toBe('official');
   });
 
+  it('lead de anúncio na janela FEP (referral recente) → fica oficial mesmo cobrável+100%', async () => {
+    const capture: { row?: Record<string, unknown> } = {};
+    const conversation = {
+      ...convo({ id: 'c1', phone: '5511999998888', bsuid: null }),
+      referral_at: new Date().toISOString(), // FEP aberta
+    };
+    const db = makeDb(conversation, CONFIG, capture);
+    await sendMessageToConversation(db as never, 'acc1', {
+      conversationId: 'conv1',
+      messageType: 'text',
+      contentText: 'oi',
+    });
+    expect(m.sendUazapi).not.toHaveBeenCalled();
+    expect(m.sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(capture.row?.channel).toBe('official');
+  });
+
+  it('referral antigo (> 7 dias) → janela FEP fechada, volta a rotear por uazapi', async () => {
+    const capture: { row?: Record<string, unknown> } = {};
+    const conversation = {
+      ...convo({ id: 'c1', phone: '5511999998888', bsuid: null }),
+      referral_at: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
+    };
+    const db = makeDb(conversation, CONFIG, capture);
+    await sendMessageToConversation(db as never, 'acc1', {
+      conversationId: 'conv1',
+      messageType: 'text',
+      contentText: 'oi',
+    });
+    expect(m.sendUazapi).toHaveBeenCalledTimes(1);
+    expect(capture.row?.channel).toBe('uazapi');
+  });
+
   it('override official força Meta mesmo com híbrido 100%', async () => {
     const capture: { row?: Record<string, unknown> } = {};
     const db = makeDb(convo({ id: 'c1', phone: '5511999998888', bsuid: null }), CONFIG, capture);

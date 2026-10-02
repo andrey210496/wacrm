@@ -335,7 +335,7 @@ async function handleStatusUpdate(status: {
   recipient_id?: string
   recipient_user_id?: string
   // pricing (Feature C): a Meta manda a categoria + se é cobrável no status.
-  // É a FONTE DA VERDADE do que é cobrado (dentro/fora da janela, FEP 72h etc.).
+  // É a FONTE DA VERDADE do que é cobrado (dentro/fora da janela, FEP até 7 dias etc.).
   pricing?: {
     billable?: boolean
     pricing_model?: string

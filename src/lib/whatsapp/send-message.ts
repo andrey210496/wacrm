@@ -51,6 +51,7 @@ import {
 } from '@/lib/whatsapp/template-body';
 import {
   chooseChannel,
+  isFepOpen,
   type ChannelOverride,
 } from '@/lib/whatsapp/outbound-router';
 import { getHybridConfig, nextInterleaveCounter } from '@/lib/channels/hybrid-config';
@@ -451,6 +452,12 @@ export async function sendMessageToConversation(
     const windowOpen = conversation.last_inbound_at
       ? Date.now() - new Date(conversation.last_inbound_at).getTime() < 24 * 3600 * 1000
       : false;
+    // Lead de anúncio dentro da janela FEP (até 7 dias do referral) → grátis no
+    // oficial, não vale pagar o risco da uazapi. Ver isFepOpen/outbound-router.
+    const fepOpen = isFepOpen({
+      referralAt: conversation.referral_at ? new Date(conversation.referral_at) : null,
+      now: new Date(),
+    });
     const routeArgs = {
       hybridEnabled: cfg.hybridEnabled,
       uazapiPct: cfg.uazapiPct,
@@ -460,6 +467,7 @@ export async function sendMessageToConversation(
       now: new Date(),
       hasPhone: !!sanitizedPhone,
       override: channelOverride ?? 'auto',
+      fepOpen,
     } as const;
     let decided = chooseChannel({ ...routeArgs, counter: 0 });
     if (decided.consumeCounter) {
