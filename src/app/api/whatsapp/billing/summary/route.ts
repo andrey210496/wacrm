@@ -5,7 +5,7 @@
 // (decisão C1) usando a tabela de tarifas configurável. Só ADMIN+. A Meta é a
 // fonte da verdade do que é cobrável (pricing no status); aqui só contamos e
 // multiplicamos pela tarifa. Também conta conversas vindas de anúncio (referral)
-// por unidade — as da janela grátis de 72h.
+// por unidade — as da janela FEP grátis (até 7 dias).
 // ============================================================
 
 import { NextResponse } from 'next/server';

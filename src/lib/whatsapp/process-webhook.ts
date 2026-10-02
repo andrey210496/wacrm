@@ -84,7 +84,7 @@ interface WhatsAppMessage {
   edit?: { original_message_id?: string; message?: Record<string, unknown> }
   /**
    * Presente quando a conversa começou por um anúncio Click-to-WhatsApp
-   * (Feature C). Abre a janela grátis de 72h e marca a origem do lead.
+   * (Feature C). Sinaliza a janela FEP grátis (até 7 dias) e marca a origem do lead.
    */
   referral?: {
     source_url?: string
@@ -621,7 +621,7 @@ async function processMessage(
 
   // Feature C: refresca a janela de atendimento de 24h (todo inbound do cliente)
   // e, quando a conversa vem de um anúncio Click-to-WhatsApp, grava o referral
-  // (origem do lead + base da janela grátis de 72h). BEST-EFFORT: envolto em
+  // (origem do lead + base da janela FEP grátis de até 7 dias). BEST-EFFORT: envolto em
   // try/catch para NUNCA bloquear a persistência da mensagem — se essa
   // atualização falhar, a mensagem ainda é gravada e o inbound não se perde.
   try {
